@@ -14,6 +14,8 @@ DEFAULT_CONFIG = {
     "search_engine": "https://www.google.com/search?q=",
     "homepage": "orbit://home",
     "animations": True,
+    "site_theme_enabled": True,
+    "update_check_minutes": 30,
 }
 
 
@@ -67,6 +69,12 @@ def add_bookmark(title, url):
     if not any(item.get("url") == url for item in bookmarks):
         bookmarks.insert(0, {"title": title or url, "url": url})
         save_bookmarks(bookmarks)
+    return bookmarks
+
+
+def remove_bookmark(url):
+    bookmarks = [item for item in load_bookmarks() if item.get("url") != url]
+    save_bookmarks(bookmarks)
     return bookmarks
 
 

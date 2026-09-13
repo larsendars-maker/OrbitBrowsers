@@ -4,26 +4,56 @@ import sys
 from urllib.parse import quote
 
 import requests
-from PySide6.QtCore import QUrl
-from PySide6.QtGui import QAction
-from PySide6.QtWebEngineCore import QWebEnginePage, QWebEngineProfile, QWebEngineSettings
-from PySide6.QtWebEngineWidgets import QWebEngineView
-from PySide6.QtWidgets import QApplication, QComboBox, QFrame, QHBoxLayout, QLineEdit, QMainWindow, QMessageBox, QPushButton, QTabWidget, QVBoxLayout, QWidget
 
-from orbit_pages import HomePage, HistoryPage, BookmarksPage, NotesPage, DownloadsPage, SettingsPage
+from PySide6.QtCore import QTimer, QUrl
+from PySide6.QtGui import QAction
+from PySide6.QtWebEngineCore import (
+    QWebEnginePage,
+    QWebEngineProfile,
+    QWebEngineSettings,
+)
+from PySide6.QtWebEngineWidgets import QWebEngineView
+from PySide6.QtWidgets import (
+    QApplication,
+    QComboBox,
+    QFrame,
+    QHBoxLayout,
+    QLineEdit,
+    QMainWindow,
+    QMessageBox,
+    QPushButton,
+    QStackedWidget,
+    QTabWidget,
+    QVBoxLayout,
+    QWidget,
+)
+
+from orbit_pages import (
+    BookmarksPage,
+    DownloadsPage,
+    HistoryPage,
+    HomePage,
+    NotesPage,
+    ProfilePage,
+    SettingsPage,
+)
 from orbit_storage import load_config, save_config
-from orbit_ui import THEMES, stylesheet
+from orbit_ui import THEMES, site_theme_css, stylesheet
 
 APP_NAME = "Orbit Browser"
-APP_VERSION = "0.5.0"
+APP_VERSION = "0.8.0"
 API_URL = "https://orbit-api-9uqa.onrender.com"
-SESSION_FILE = os.path.join(os.environ.get("LOCALAPPDATA", os.path.expanduser("~")), "OrbitBrowser", "data", "session.json")
+SESSION_FILE = os.path.join(
+    os.environ.get("LOCALAPPDATA", os.path.expanduser("~")),
+    "OrbitBrowser",
+    "data",
+    "session.json",
+)
 
 
 def check_api():
     try:
-        response = requests.get(f"{API_URL}/health", timeout=10)
-        return response.status_code == 200
+        return requests.get(f"{API_URL}/health", timeout=10).status_code == 200
     except Exception:
         return False
 
@@ -56,14 +86,26 @@ def load_session():
         return None
 
 
+class BrowserPage(QWebEnginePage):
+    def __init__(self, profile, window, parent=None):
+        super().__init__(profile, parent)
+        self.orbit_window = window
+
+
 class BrowserView(QWebEngineView):
-    def __init__(self, profile, parent=None):
+    def __init__(self, window, profile, parent=None):
         super().__init__(parent)
-        self.setPage(QWebEnginePage(profile, self))
+        self.orbit_window = window
+        self.setPage(BrowserPage(profile, window, self))
         settings = self.settings()
         settings.setAttribute(QWebEngineSettings.WebAttribute.JavascriptEnabled, True)
         settings.setAttribute(QWebEngineSettings.WebAttribute.LocalStorageEnabled, True)
         settings.setAttribute(QWebEngineSettings.WebAttribute.FullScreenSupportEnabled, True)
+        self.loadFinished.connect(self._after_load)
+
+    def _after_load(self, ok):
+        if ok:
+            self.orbit_window.apply_site_theme(self)
 
 
 class OrbitBrowser(QMainWindow):
@@ -74,73 +116,97 @@ class OrbitBrowser(QMainWindow):
         self.config = config
         self.current_theme = config.get("theme", "VOID")
         self.web_profile = QWebEngineProfile.defaultProfile()
-        self.web_profile.setPersistentCookiesPolicy(QWebEngineProfile.PersistentCookiesPolicy.ForcePersistentCookies)
+        self.web_profile.setPersistentCookiesPolicy(
+            QWebEngineProfile.PersistentCookiesPolicy.ForcePersistentCookies
+        )
         self.setWindowTitle("Orbit Browser")
         self.resize(1450, 900)
         self.build_ui()
         self.apply_theme()
-        self.open_home()
+        self.start_update_timer()
+        self.show_home()
 
     def build_ui(self):
         central = QWidget()
         self.setCentralWidget(central)
         root = QVBoxLayout(central)
         root.setContentsMargins(8, 8, 8, 8)
-        root.setSpacing(7)
+        root.setSpacing(5)
 
         toolbar_frame = QFrame()
         toolbar_frame.setObjectName("toolbar")
         toolbar = QHBoxLayout(toolbar_frame)
-        toolbar.setContentsMargins(8, 8, 8, 8)
+        toolbar.setContentsMargins(4, 2, 4, 2)
+        toolbar.setSpacing(3)
 
-        back = QPushButton("←")
-        forward = QPushButton("→")
-        reload_button = QPushButton("⟳")
-        home = QPushButton("⌂")
-        for button in (back, forward, reload_button, home):
-            button.setFixedWidth(40)
+        self.back_button = QPushButton("←")
+        self.forward_button = QPushButton("→")
+        self.reload_button = QPushButton("⟳")
+        self.home_button = QPushButton("⌂")
+        self.new_tab_button = QPushButton("+")
+        self.menu_button = QPushButton("⋮")
+        self.profile_button = QPushButton(
+            self.user.get("display_name") or self.user.get("username", "Profile")
+        )
 
-        back.clicked.connect(self.go_back)
-        forward.clicked.connect(self.go_forward)
-        reload_button.clicked.connect(self.reload_page)
-        home.clicked.connect(self.open_home)
+        for button in (
+            self.back_button,
+            self.forward_button,
+            self.reload_button,
+            self.home_button,
+            self.new_tab_button,
+            self.menu_button,
+        ):
+            button.setFixedWidth(36)
 
         self.address = QLineEdit()
-        self.address.setPlaceholderText("Поиск или адрес...")
-        self.address.returnPressed.connect(self.navigate)
+        self.address.setObjectName("address")
+        self.address.setPlaceholderText("Поиск или адрес…")
 
-        new_tab = QPushButton("+")
-        new_tab.setFixedWidth(40)
-        new_tab.clicked.connect(self.new_browser_tab)
-
-        profile_button = QPushButton(self.user.get("display_name", self.user.get("username", "Profile")))
-        profile_button.clicked.connect(self.open_profile)
-
-        self.theme_combo = QComboBox()
-        self.theme_combo.addItems(list(THEMES.keys()))
-        self.theme_combo.setCurrentText(self.current_theme)
-        self.theme_combo.currentTextChanged.connect(self.change_theme)
-
-        menu = QPushButton("⋮")
-        menu.setFixedWidth(40)
-        menu.clicked.connect(self.open_menu)
-
-        toolbar.addWidget(back)
-        toolbar.addWidget(forward)
-        toolbar.addWidget(reload_button)
-        toolbar.addWidget(home)
+        toolbar.addWidget(self.back_button)
+        toolbar.addWidget(self.forward_button)
+        toolbar.addWidget(self.reload_button)
+        toolbar.addWidget(self.home_button)
         toolbar.addWidget(self.address, 1)
-        toolbar.addWidget(new_tab)
-        toolbar.addWidget(profile_button)
-        toolbar.addWidget(self.theme_combo)
-        toolbar.addWidget(menu)
+        toolbar.addWidget(self.new_tab_button)
+        toolbar.addWidget(self.profile_button)
+        toolbar.addWidget(self.menu_button)
+
         root.addWidget(toolbar_frame)
 
-        self.tabs = QTabWidget()
-        self.tabs.setTabsClosable(True)
-        self.tabs.tabCloseRequested.connect(self.close_tab)
-        self.tabs.currentChanged.connect(self.sync_address)
-        root.addWidget(self.tabs, 1)
+        self.stack = QStackedWidget()
+        root.addWidget(self.stack, 1)
+
+        self.home_page = HomePage(self)
+        self.browser_tabs = QTabWidget()
+        self.browser_tabs.setTabsClosable(True)
+        self.browser_tabs.tabCloseRequested.connect(self.close_tab)
+        self.browser_tabs.currentChanged.connect(self.sync_address)
+
+        self.stack.addWidget(self.home_page)
+        self.stack.addWidget(self.browser_tabs)
+
+        self.back_button.clicked.connect(self.go_back)
+        self.forward_button.clicked.connect(self.go_forward)
+        self.reload_button.clicked.connect(self.reload_page)
+        self.home_button.clicked.connect(self.show_home)
+        self.new_tab_button.clicked.connect(self.new_browser_tab)
+        self.profile_button.clicked.connect(self.open_profile)
+        self.menu_button.clicked.connect(self.open_menu)
+        self.address.returnPressed.connect(self.navigate)
+
+    def show_home(self):
+        self.stack.setCurrentWidget(self.home_page)
+        self.address.clear()
+        self.home_page = HomePage(self)
+        old = self.stack.widget(0)
+        self.stack.removeWidget(old)
+        old.deleteLater()
+        self.stack.insertWidget(0, self.home_page)
+        self.stack.setCurrentIndex(0)
+
+    def show_browser(self):
+        self.stack.setCurrentWidget(self.browser_tabs)
 
     def apply_theme(self):
         QApplication.instance().setStyleSheet(stylesheet(self.current_theme))
@@ -152,36 +218,39 @@ class OrbitBrowser(QMainWindow):
         self.config["theme"] = theme
         save_config(self.config)
         self.apply_theme()
+        self.apply_site_theme_to_all()
 
-    def new_browser_tab(self, url=None):
-        browser = BrowserView(self.web_profile)
+    def create_browser_tab(self, url=None):
+        browser = BrowserView(self, self.web_profile)
         browser.urlChanged.connect(lambda value, b=browser: self.browser_url_changed(b, value))
         browser.titleChanged.connect(lambda title, b=browser: self.browser_title_changed(b, title))
         browser.setUrl(QUrl(url or "about:blank"))
-        index = self.tabs.addTab(browser, "Новая вкладка")
-        self.tabs.setCurrentIndex(index)
+        index = self.browser_tabs.addTab(browser, "Новая вкладка")
+        self.browser_tabs.setCurrentIndex(index)
+        self.show_browser()
         return browser
 
+    def new_browser_tab(self):
+        return self.create_browser_tab()
+
     def current_browser(self):
-        widget = self.tabs.currentWidget()
+        widget = self.browser_tabs.currentWidget()
         return widget if isinstance(widget, QWebEngineView) else None
 
     def close_tab(self, index):
-        if self.tabs.count() <= 1:
-            self.open_home()
+        if self.browser_tabs.count() <= 1:
+            self.show_home()
             return
-        widget = self.tabs.widget(index)
-        self.tabs.removeTab(index)
+        widget = self.browser_tabs.widget(index)
+        self.browser_tabs.removeTab(index)
         widget.deleteLater()
 
     def browser_title_changed(self, browser, title):
-        index = self.tabs.indexOf(browser)
+        index = self.browser_tabs.indexOf(browser)
         if index < 0:
             return
         title = title.strip() or "Новая вкладка"
-        if len(title) > 25:
-            title = title[:25] + "..."
-        self.tabs.setTabText(index, title)
+        self.browser_tabs.setTabText(index, title[:26] + ("..." if len(title) > 26 else ""))
 
     def browser_url_changed(self, browser, url):
         if browser is self.current_browser():
@@ -195,6 +264,7 @@ class OrbitBrowser(QMainWindow):
         self.navigate_text(self.address.text().strip())
 
     def navigate_text(self, text):
+        text = text.strip()
         if not text:
             return
         if text.startswith(("http://", "https://")):
@@ -202,19 +272,19 @@ class OrbitBrowser(QMainWindow):
         elif "." in text and " " not in text:
             url = "https://" + text
         else:
-            engine = self.config.get("search_engine", "https://www.google.com/search?q=")
-            url = engine + quote(text)
-        browser = self.current_browser() or self.new_browser_tab()
+            url = self.config.get("search_engine", "https://www.google.com/search?q=") + quote(text)
+        browser = self.current_browser()
+        if not browser:
+            browser = self.create_browser_tab()
         browser.setUrl(QUrl(url))
+        self.show_browser()
 
     def open_url(self, url):
-        browser = self.current_browser() or self.new_browser_tab()
+        browser = self.current_browser()
+        if not browser:
+            browser = self.create_browser_tab()
         browser.setUrl(QUrl(url))
-
-    def open_home(self):
-        page = HomePage(self)
-        index = self.tabs.addTab(page, "Orbit")
-        self.tabs.setCurrentIndex(index)
+        self.show_browser()
 
     def go_back(self):
         browser = self.current_browser()
@@ -231,9 +301,9 @@ class OrbitBrowser(QMainWindow):
         if browser:
             browser.reload()
 
-    def open_internal_page(self, page, title):
-        index = self.tabs.addTab(page, title)
-        self.tabs.setCurrentIndex(index)
+    def open_internal_page(self, page, _title):
+        self.stack.addWidget(page)
+        self.stack.setCurrentWidget(page)
 
     def open_history(self):
         self.open_internal_page(HistoryPage(self), "История")
@@ -251,38 +321,92 @@ class OrbitBrowser(QMainWindow):
         self.open_internal_page(SettingsPage(self), "Настройки")
 
     def open_profile(self):
-        name = self.user.get("display_name", self.user.get("username", "User"))
-        xp = int(self.user.get("xp", 0))
-        level = (xp // 500) + 1
-        role = self.user.get("role", "user")
-        role_text = "Founder • Creator of Orbit" if role == "founder" else self.user.get("title", "Explorer")
-        QMessageBox.information(self, "Orbit Profile", f"{name}\n\n{role_text}\nLevel {level}\n{xp} XP")
+        self.open_internal_page(ProfilePage(self), "Профиль")
 
     def open_menu(self):
-        menu_bar = self.menuBar()
-        menu_bar.clear()
-        orbit_menu = menu_bar.addMenu("Orbit")
-        actions = [
+        menu = self.menuBar()
+        menu.clear()
+        orbit = menu.addMenu("Orbit")
+        for title, callback in (
+            ("Главная", self.show_home),
             ("История", self.open_history),
             ("Закладки", self.open_bookmarks),
             ("Загрузки", self.open_downloads),
             ("Notes", self.open_notes),
+            ("Профиль", self.open_profile),
             ("Настройки", self.open_settings),
-        ]
-        for title, callback in actions:
+        ):
             action = QAction(title, self)
             action.triggered.connect(callback)
-            orbit_menu.addAction(action)
-        menu_bar.setVisible(True)
+            orbit.addAction(action)
+        orbit.addSeparator()
+        theme_menu = orbit.addMenu("Тема")
+        for theme in THEMES:
+            action = QAction(theme, self)
+            action.triggered.connect(lambda checked=False, value=theme: self.change_theme(value))
+            theme_menu.addAction(action)
+        menu.setVisible(True)
+
+    def apply_site_theme(self, browser):
+        if not self.config.get("site_theme_enabled", True):
+            return
+        if not isinstance(browser, BrowserView):
+            return
+        css = site_theme_css(self.current_theme)
+        css_json = json.dumps(css)
+        js = f"""
+        (() => {{
+            const id = 'orbit-theme-style';
+            let style = document.getElementById(id);
+            if (!style) {{
+                style = document.createElement('style');
+                style.id = id;
+                (document.head || document.documentElement).appendChild(style);
+            }}
+            style.textContent = {css_json};
+            document.documentElement.classList.add('orbit-theme-enabled');
+        }})();
+        """
+        try:
+            browser.page().runJavaScript(js)
+        except Exception:
+            pass
+
+    def apply_site_theme_to_all(self):
+        for index in range(self.browser_tabs.count()):
+            widget = self.browser_tabs.widget(index)
+            if isinstance(widget, BrowserView):
+                self.apply_site_theme(widget)
+
+    def start_update_timer(self):
+        self.update_timer = QTimer(self)
+        minutes = int(self.config.get("update_check_minutes", 30))
+        self.update_timer.setInterval(max(5, minutes) * 60 * 1000)
+        self.update_timer.timeout.connect(self.check_for_updates)
+        self.update_timer.start()
+
+    def check_for_updates(self):
+        try:
+            response = requests.get(f"{API_URL}/api/update/version", timeout=8)
+            if response.status_code != 200:
+                return
+            data = response.json()
+            latest = data.get("version")
+            if latest and latest != APP_VERSION:
+                QMessageBox.information(self, "Orbit Browser", f"Доступна новая версия Orbit: {latest}")
+        except Exception:
+            pass
 
 
 def main():
     os.makedirs(os.path.dirname(SESSION_FILE), exist_ok=True)
     config = load_config()
+
     app = QApplication(sys.argv)
     app.setApplicationName(APP_NAME)
     app.setApplicationVersion(APP_VERSION)
     app.setStyleSheet(stylesheet(config.get("theme", "VOID")))
+
     print("Welcome to Orbit Browser")
 
     if not check_api():
@@ -290,7 +414,11 @@ def main():
 
     session = load_session()
     if not session:
-        QMessageBox.warning(None, "Orbit Browser", "Сохранённая сессия не найдена.\n\nСначала войдите в Orbit.")
+        QMessageBox.warning(
+            None,
+            "Orbit Browser",
+            "Сохранённая сессия не найдена.\n\nСначала войдите в Orbit.",
+        )
         sys.exit(0)
 
     window = OrbitBrowser(session, config)
