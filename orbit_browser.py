@@ -3,7 +3,6 @@ import os
 import secrets
 from datetime import datetime, timezone
 
-import psycopg
 from fastapi import FastAPI, Header, HTTPException
 from pydantic import BaseModel, EmailStr
 
