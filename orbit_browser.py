@@ -7,20 +7,32 @@ import subprocess
 from urllib.parse import quote
 
 import requests
-from PySide6.QtCore import QUrl, QTimer, Qt, QStandardPaths, QSize
-from PySide6.QtGui import QAction, QPixmap, QIcon
+from PySide6.QtCore import QUrl, QTimer, Qt, QStandardPaths, QSize, Signal
+from PySide6.QtGui import QAction, QPixmap, QIcon, QKeySequence, QShortcut
 from PySide6.QtWebEngineCore import QWebEnginePage, QWebEngineProfile, QWebEngineSettings
 from PySide6.QtWebEngineWidgets import QWebEngineView
-from PySide6.QtWidgets import QApplication, QFrame, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMessageBox, QPushButton, QTabWidget, QVBoxLayout, QWidget, QSplashScreen, QProgressDialog, QFileDialog, QMenu, QStyle
+from PySide6.QtWidgets import QApplication, QFrame, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMessageBox, QPushButton, QTabWidget, QVBoxLayout, QWidget, QSplashScreen, QProgressDialog, QFileDialog, QMenu, QStyle, QTabBar
 
-from orbit_pages import HomePage, HistoryPage, BookmarksPage, NotesPage, DownloadsPage, SettingsPage, SearchPage, DiagnosticsPage, ProfilePage
-from orbit_storage import load_config, save_config, load_local_profile, save_local_profile
+from orbit_pages import HomePage, HistoryPage, BookmarksPage, NotesPage, DownloadsPage, SettingsPage, SearchPage, DiagnosticsPage, ProfilePage, GeminiPage, SupportPage, AdminPanelPage
+from orbit_storage import load_config, save_config, load_local_profile, save_local_profile, add_history, add_download
 from orbit_ui import THEMES, stylesheet, tr
 
 APP_NAME = "Orbit Browser"
-APP_VERSION = "1.11.0"
+APP_VERSION = "1.16.4"
 API_URL = "https://orbit-api-9uqa.onrender.com"
 GITHUB_REPO = "larsendars-maker/OrbitBrowsers"
+WINDOWS_APP_USER_MODEL_ID = "Larsenda.OrbitBrowser"
+
+
+def configure_windows_identity():
+    """Задаёт стабильный Windows AppUserModelID, чтобы Orbit использовал свою иконку и в панели задач."""
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(WINDOWS_APP_USER_MODEL_ID)
+    except Exception:
+        pass
 
 
 def resource_path(*relative_parts):
@@ -69,6 +81,11 @@ class BrowserView(QWebEngineView):
         self.loadFinished.connect(self.apply_site_theme)
 
     def apply_site_theme(self):
+        url = self.url().toString().lower()
+        search_hosts = ("google.", "bing.com", "duckduckgo.com", "accounts.google.", "login.microsoftonline.com")
+        if any(host in url for host in search_hosts):
+            self.page().runJavaScript("document.getElementById('orbit-site-theme')?.remove();")
+            return
         if not self.browser_window.config.get("site_theming", True):
             return
         t = THEMES.get(self.browser_window.current_theme, THEMES["VOID"])
@@ -93,6 +110,8 @@ class BrowserView(QWebEngineView):
 
 
 class OrbitBrowser(QMainWindow):
+    identityChanged = Signal()
+
     def __init__(self, session, config):
         super().__init__()
         self.token = session["token"]
@@ -103,6 +122,17 @@ class OrbitBrowser(QMainWindow):
         self.THEMES = THEMES
         self.web_profile = QWebEngineProfile.defaultProfile()
         self.web_profile.setPersistentCookiesPolicy(QWebEngineProfile.PersistentCookiesPolicy.ForcePersistentCookies)
+        cache_root = os.path.join(os.environ.get("LOCALAPPDATA", os.path.expanduser("~")), "OrbitBrowser", "cache", "webengine")
+        storage_root = os.path.join(os.environ.get("LOCALAPPDATA", os.path.expanduser("~")), "OrbitBrowser", "data", "webengine")
+        os.makedirs(cache_root, exist_ok=True)
+        os.makedirs(storage_root, exist_ok=True)
+        try:
+            self.web_profile.setCachePath(cache_root)
+            self.web_profile.setPersistentStoragePath(storage_root)
+            self.web_profile.setHttpCacheType(QWebEngineProfile.HttpCacheType.DiskHttpCache)
+            self.web_profile.setHttpCacheMaximumSize(256 * 1024 * 1024)
+        except Exception:
+            pass
         self.setWindowTitle("Orbit Browser")
         icon_path = resource_path("assets", "orbit_icon.ico")
         if os.path.exists(icon_path):
@@ -132,10 +162,11 @@ class OrbitBrowser(QMainWindow):
 
         sidebar = QFrame()
         sidebar.setObjectName("sidebar")
-        sidebar.setFixedWidth(184)
+        self.sidebar = sidebar
+        sidebar.setFixedWidth(208)
         side = QVBoxLayout(sidebar)
-        side.setContentsMargins(12, 14, 12, 14)
-        side.setSpacing(4)
+        side.setContentsMargins(14, 16, 14, 16)
+        side.setSpacing(7)
 
         logo = QLabel("◉  ORBIT")
         logo.setObjectName("brandHero")
@@ -147,9 +178,14 @@ class OrbitBrowser(QMainWindow):
             ("◷", "history", self.open_history),
             ("☆", "bookmarks", self.open_bookmarks),
             ("↓", "downloads", self.open_downloads),
+            ("✦", "gemini", self.open_gemini),
+            ("❔", "support", self.open_support),
             ("✎", "notes", self.open_notes),
             ("⚙", "settings", self.open_settings),
         ]
+        role = self.user.get("role", "user").lower()
+        if role == "admin":
+            nav.insert(-1, ("▤", "admin_panel", self.open_admin_panel))
         self.nav_buttons = {}
         for icon_text, key, fn in nav:
             button = QPushButton(f"{icon_text}   {tr(self.config.get('language', 'ru'), key)}")
@@ -172,6 +208,12 @@ class OrbitBrowser(QMainWindow):
         top.setContentsMargins(9, 7, 9, 7)
         top.setSpacing(4)
 
+        self.sidebar_toggle_button = QPushButton("☰")
+        self.sidebar_toggle_button.setFixedSize(42, 42)
+        self.sidebar_toggle_button.setToolTip("Скрыть/показать боковую панель")
+        self.sidebar_toggle_button.clicked.connect(self.toggle_sidebar)
+        top.addWidget(self.sidebar_toggle_button)
+
         for text, fn in [
             ("‹", self.go_back),
             ("›", self.go_forward),
@@ -179,7 +221,7 @@ class OrbitBrowser(QMainWindow):
             ("⌂", self.show_home_screen),
         ]:
             button = QPushButton(text)
-            button.setFixedSize(36, 36)
+            button.setFixedSize(42, 42)
             button.clicked.connect(fn)
             top.addWidget(button)
 
@@ -194,26 +236,52 @@ class OrbitBrowser(QMainWindow):
         top.addWidget(new_tab)
 
         profile = QPushButton(self.user.get("display_name") or self.user.get("username", "Аккаунт"))
+        profile.setObjectName("topProfile")
+        profile.setMinimumSize(150, 42)
+        profile.setMaximumWidth(190)
         self.top_profile_button = profile
         profile.clicked.connect(self.open_profile_page)
         top.addWidget(profile)
 
         content.addWidget(chrome)
 
-        self.home = HomePage(self)
         self.tabs = QTabWidget()
         self.tabs.setTabsClosable(True)
+        self.tabs.setDocumentMode(True)
+        self.tabs.setMovable(True)
+        self.tabs.setUsesScrollButtons(True)
+        self.tabs.tabBar().setExpanding(False)
+        self.tabs.tabBar().setElideMode(Qt.TextElideMode.ElideRight)
+        self.update_tab_widths()
+        self.tabs.setElideMode(Qt.TextElideMode.ElideRight)
+        self.tabs.setUsesScrollButtons(True)
+        self.tabs.tabBar().setExpanding(False)
+        self.tabs.tabBar().setMinimumWidth(180)
         self.tabs.tabCloseRequested.connect(self.close_tab)
         self.tabs.currentChanged.connect(self.sync_address)
+        self.tabs.currentChanged.connect(lambda _i: self.update_tab_widths())
+        self.close_shortcut = QShortcut(QKeySequence("Ctrl+W"), self)
+        self.close_shortcut.activated.connect(self.close_current_tab)
 
-        content.addWidget(self.home, 1)
+        self.home = HomePage(self)
+        home_index = self.tabs.addTab(self.home, "Главная")
+        self.install_tab_close_button(home_index)
         self.home.weatherChanged.connect(self.sync_sidebar_weather)
         self.sync_sidebar_weather(self.home.weather_button.text())
         self.web_area = self.tabs
-        self.web_area.setVisible(False)
         content.addWidget(self.web_area, 1)
 
+        self.web_profile.downloadRequested.connect(self.handle_download_request)
+
         root.addLayout(content, 1)
+    def toggle_sidebar(self):
+        if not hasattr(self, "sidebar"):
+            return
+        hidden = not self.sidebar.isVisible()
+        self.sidebar.setVisible(not hidden)
+        self.sidebar_toggle_button.setToolTip("Показать боковую панель" if hidden else "Скрыть боковую панель")
+        save_config(self.config)
+
     def sync_sidebar_weather(self, text):
         if hasattr(self, "sidebar_weather"):
             self.sidebar_weather.setText(text.replace("  ", " ", 1))
@@ -228,6 +296,7 @@ class OrbitBrowser(QMainWindow):
         if hasattr(self, "nav_buttons"):
             for key, (button, icon_text) in self.nav_buttons.items():
                 button.setText(f"{icon_text}   {tr(language, key)}")
+                button.setVisible(key not in set(self.config.get("hidden_nav", [])))
         if hasattr(self, "sidebar_weather"):
             self.sidebar_weather.setToolTip("Погода" if language == "ru" else "Weather")
         if hasattr(self, "home"):
@@ -253,13 +322,14 @@ class OrbitBrowser(QMainWindow):
         self.apply_theme()
 
     def show_home_screen(self):
-        self.web_area.setVisible(False)
-        self.home.setVisible(True)
+        if hasattr(self, "tabs"):
+            self.tabs.setCurrentWidget(self.home)
         self.address.clear()
         self.home.refresh_shortcuts()
 
     def show_web_area(self):
-        self.home.setVisible(False)
+        if hasattr(self, "tabs") and self.tabs.currentWidget() is self.home:
+            return
         self.web_area.setVisible(True)
 
     def new_browser_tab(self, url=None):
@@ -269,6 +339,7 @@ class OrbitBrowser(QMainWindow):
         browser.titleChanged.connect(lambda t, b=browser: self.browser_title_changed(b, t))
         browser.setUrl(QUrl(url or "about:blank"))
         i = self.tabs.addTab(browser, "Новая вкладка")
+        self.install_tab_close_button(i)
         self.tabs.setCurrentIndex(i)
         return browser
 
@@ -276,13 +347,67 @@ class OrbitBrowser(QMainWindow):
         w = self.tabs.currentWidget()
         return w if isinstance(w, QWebEngineView) else None
 
+    def install_tab_close_button(self, index):
+        if index < 0 or index >= self.tabs.count():
+            return
+        button = QPushButton("×")
+        button.setObjectName("tabCloseButton")
+        button.setCursor(Qt.CursorShape.PointingHandCursor)
+        button.setToolTip("Закрыть вкладку / Close tab")
+        button.setFixedSize(22, 22)
+        button.clicked.connect(lambda _checked=False, b=button: self.close_tab_by_button(b))
+        self.tabs.tabBar().setTabButton(index, QTabBar.ButtonPosition.RightSide, button)
+
+    def close_tab_by_button(self, button):
+        for i in range(self.tabs.count()):
+            if self.tabs.tabBar().tabButton(i, QTabBar.ButtonPosition.RightSide) is button:
+                self.close_tab(i)
+                return
+
+    def close_current_tab(self):
+        if self.tabs.count() == 0:
+            return
+        self.close_tab(self.tabs.currentIndex())
+
     def close_tab(self, index):
-        if self.tabs.count() <= 1:
-            self.show_home_screen()
+        if index < 0 or index >= self.tabs.count():
+            return
+        if self.tabs.widget(index) is self.home:
+            if self.tabs.count() > 1:
+                self.tabs.setCurrentIndex(1)
             return
         w = self.tabs.widget(index)
         self.tabs.removeTab(index)
-        w.deleteLater()
+        if w is not None:
+            w.deleteLater()
+        if self.tabs.count() == 0:
+            home_index = self.tabs.addTab(self.home, "Главная")
+            self.install_tab_close_button(home_index)
+            self.tabs.setCurrentIndex(home_index)
+
+    def handle_download_request(self, item):
+        try:
+            default_dir = QStandardPaths.writableLocation(QStandardPaths.StandardLocation.DownloadLocation)
+            os.makedirs(default_dir, exist_ok=True)
+            filename = item.downloadFileName() or item.suggestedFileName() or "OrbitDownload"
+            path = os.path.join(default_dir, filename)
+            base, ext = os.path.splitext(path)
+            counter = 1
+            while os.path.exists(path):
+                path = f"{base} ({counter}){ext}"
+                counter += 1
+            item.setDownloadDirectory(default_dir)
+            item.setDownloadFileName(os.path.basename(path))
+            add_download(os.path.basename(path), item.url().toString(), path, "started", 0)
+            def done():
+                add_download(os.path.basename(path), item.url().toString(), path, "completed", 0)
+            item.isFinishedChanged.connect(done)
+            item.accept()
+        except Exception:
+            try:
+                item.accept()
+            except Exception:
+                pass
 
     def browser_title_changed(self, browser, title):
         i = self.tabs.indexOf(browser)
@@ -292,12 +417,33 @@ class OrbitBrowser(QMainWindow):
         self.tabs.setTabText(i, title[:22] + ("…" if len(title) > 22 else ""))
 
     def browser_url_changed(self, browser, url):
+        value = url.toString()
         if browser is self.current_browser():
-            self.address.setText(url.toString())
+            self.address.setText(value)
+        if value and not value.startswith(("about:", "orbit://")):
+            add_history(browser.title() or value, value)
+            self.config["stats_pages"] = int(self.config.get("stats_pages", 0)) + 1
+            save_config(self.config)
 
     def sync_address(self, index):
         browser = self.current_browser()
         self.address.setText(browser.url().toString() if browser else "")
+        self.update_tab_widths()
+
+    def update_tab_widths(self):
+        if not hasattr(self, "tabs"):
+            return
+        count = max(1, self.tabs.count())
+        available = max(240, self.tabs.tabBar().width() - 16)
+        width = max(72, min(190, int(available / count) - 8))
+        self.tabs.setStyleSheet(
+            f"QTabBar::tab {{ min-width: {width}px; max-width: {width}px; padding: 7px 8px; }} "
+            "QTabBar::close-button { width: 16px; height: 16px; }"
+        )
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        QTimer.singleShot(0, self.update_tab_widths)
 
     def navigate(self):
         text = self.address.text().strip()
@@ -320,17 +466,20 @@ class OrbitBrowser(QMainWindow):
         else:
             self.open_orbit_search(text)
 
+    SEARCH_PROVIDERS = {
+        "google": "https://www.google.com/search?q=",
+        "bing": "https://www.bing.com/search?q=",
+        "duckduckgo": "https://duckduckgo.com/?q=",
+        "orbit": "https://www.google.com/search?q=",
+    }
+
+    def search_url(self, query):
+        base = self.SEARCH_PROVIDERS.get(self.config.get("search_engine", "google"), self.SEARCH_PROVIDERS["google"])
+        return base + quote(query)
+
     def open_orbit_search(self, query=""):
-        engine = self.config.get("search_engine", "google")
-        engines = {
-            "orbit": "https://www.google.com/search?q=",
-            "google": "https://www.google.com/search?q=",
-            "bing": "https://www.bing.com/search?q=",
-            "duckduckgo": "https://duckduckgo.com/?q=",
-        }
-        base = engines.get(engine, engines["google"])
         if query:
-            self.open_url(base + quote(query))
+            self.open_url(self.search_url(query))
             return
         self.show_web_area()
         page = SearchPage(self, query)
@@ -339,6 +488,9 @@ class OrbitBrowser(QMainWindow):
         self.address.setText("orbit://search")
 
     def open_url(self, url):
+        if not url.startswith("orbit://") and not self.network_allowed():
+            QMessageBox.warning(self, "Orbit Network", "Orbit настроен работать только при наличии VPN. Включите VPN или отключите эту защиту в Настройках.")
+            return
         if url.startswith("orbit://history"):
             self.open_internal_page(HistoryPage(self), "История")
             return
@@ -357,12 +509,33 @@ class OrbitBrowser(QMainWindow):
         if url.startswith("orbit://profile"):
             self.open_profile_page()
             return
+        if url.startswith("orbit://gemini"):
+            self.open_gemini()
+            return
+        if url.startswith("orbit://support"):
+            self.open_support()
+            return
         self.show_web_area()
         browser = self.current_browser()
         if not browser:
             browser = self.new_browser_tab(url)
         else:
             browser.setUrl(QUrl(url))
+
+    def vpn_available(self):
+        if not self.config.get("require_vpn", False):
+            return True
+        if sys.platform != "win32":
+            return True
+        try:
+            text = subprocess.check_output(["ipconfig", "/all"], text=True, encoding="utf-8", errors="ignore")
+            keywords = ("wireguard", "wintun", "openvpn", "nordvpn", "mullvad", "proton", "tailscale", "warp", "tap-windows", "cisco anyconnect")
+            return any(k in text.lower() for k in keywords)
+        except Exception:
+            return True
+
+    def network_allowed(self):
+        return self.vpn_available()
 
     def go_back(self):
         b = self.current_browser()
@@ -382,6 +555,7 @@ class OrbitBrowser(QMainWindow):
     def open_internal_page(self, page, title):
         self.show_web_area()
         i = self.tabs.addTab(page, title)
+        self.install_tab_close_button(i)
         self.tabs.setCurrentIndex(i)
         self.address.setText(f"orbit://{title.lower()}")
 
@@ -403,6 +577,26 @@ class OrbitBrowser(QMainWindow):
     def open_profile_page(self):
         self.open_internal_page(ProfilePage(self), "Профиль")
 
+    def open_gemini(self):
+        # Orbit AI is a simple, convenient Gemini web-chat entry point.
+        # No Gemini API key is embedded in the desktop client.
+        self.show_web_area()
+        browser = self.current_browser()
+        gemini_url = "https://gemini.google.com/app"
+        if not browser:
+            browser = self.new_browser_tab(gemini_url)
+        else:
+            browser.setUrl(QUrl(gemini_url))
+        self.address.setText(gemini_url)
+
+    def open_support(self):
+        self.open_internal_page(SupportPage(self), "Помощь")
+
+    def open_admin_panel(self):
+        if self.user.get("role", "user").lower() != "admin":
+            return
+        self.open_internal_page(AdminPanelPage(self), "Админ-панель")
+
     def open_profile(self):
         self.open_profile_page()
 
@@ -416,6 +610,8 @@ class OrbitBrowser(QMainWindow):
             ("Закладки", self.open_bookmarks),
             ("Загрузки", self.open_downloads),
             ("Notes", self.open_notes),
+            ("Orbit AI", self.open_gemini),
+            ("Помощь", self.open_support),
             ("Профиль", self.open_profile_page),
             ("Диагностика", self.open_diagnostics),
             ("Настройки", self.open_settings),
@@ -435,16 +631,22 @@ class OrbitBrowser(QMainWindow):
             self.account_button.setText(name)
         if hasattr(self, "top_profile_button"):
             self.top_profile_button.setText(name)
+            title = self.user.get("equipped_title") or self.user.get("title") or "Explorer"
+            self.top_profile_button.setToolTip(f"{name} · {title}")
             try:
                 avatar_path = self.config.get("avatar_path", "")
                 if avatar_path and os.path.exists(avatar_path):
-                    pix = QPixmap(avatar_path).scaled(24, 24, Qt.AspectRatioMode.KeepAspectRatioByExpanding, Qt.TransformationMode.SmoothTransformation)
+                    pix = QPixmap(avatar_path).scaled(32, 32, Qt.AspectRatioMode.KeepAspectRatioByExpanding, Qt.TransformationMode.SmoothTransformation)
                     self.top_profile_button.setIcon(QIcon(pix))
-                    self.top_profile_button.setIconSize(QSize(24, 24))
+                    self.top_profile_button.setIconSize(QSize(32, 32))
                 else:
                     self.top_profile_button.setIcon(QIcon())
             except Exception:
                 pass
+        try:
+            self.identityChanged.emit()
+        except Exception:
+            pass
 
     @staticmethod
     def _version_tuple(value):
@@ -512,7 +714,7 @@ class OrbitBrowser(QMainWindow):
                                 progress.setLabelText(f"Скачивание {done // 1024 // 1024} / {total // 1024 // 1024} МБ…")
                             QApplication.processEvents()
             progress.setValue(100)
-            progress.setLabelText("Запуск установщика…")
+            progress.setLabelText(f"Запуск установщика Orbit Browser {version}…")
             QApplication.processEvents()
             subprocess.Popen([installer], close_fds=True)
             QTimer.singleShot(300, QApplication.instance().quit)
@@ -522,8 +724,12 @@ class OrbitBrowser(QMainWindow):
 
 
 def main():
+    configure_windows_identity()
     os.makedirs(os.path.dirname(SESSION_FILE), exist_ok=True)
     config = load_config()
+    proxy_url = str(config.get("proxy_url", "")).strip()
+    if proxy_url:
+        os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = "--proxy-server=" + proxy_url
     app = QApplication(sys.argv)
     icon_path = resource_path("assets", "orbit_icon.ico")
     if os.path.exists(icon_path):
@@ -552,7 +758,7 @@ def main():
     local_profile = load_local_profile()
     if local_profile:
         merged = dict(session["user"])
-        merged.update({k: v for k, v in local_profile.items() if k in {"display_name", "bio", "title", "profile_theme"}})
+        merged.update({k: v for k, v in local_profile.items() if k in {"display_name", "bio", "title", "profile_theme", "unlocked_titles", "equipped_title"}})
         session["user"] = merged
     window = OrbitBrowser(session, config)
     window.hide()

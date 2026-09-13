@@ -10,7 +10,7 @@ TRANSLATIONS = {
         "future": "B R O W S E   T H E   F U T U R E", "weather": "Погода", "profile": "Профиль",
         "language": "Язык интерфейса", "appearance": "Внешний вид", "behavior": "Поведение",
         "search_engine": "Поисковая система", "site_theming": "Оформлять сайты в стиле Orbit",
-        "auto_update": "Автоматические обновления", "animations": "Плавные анимации",
+        "auto_update": "Автоматические обновления", "animations": "Плавные анимации", "support": "Помощь", "gemini": "Orbit AI", "admin_panel": "Админ-панель",
     },
     "en": {
         "home": "Home", "tabs": "Tabs", "history": "History", "bookmarks": "Bookmarks",
@@ -19,7 +19,7 @@ TRANSLATIONS = {
         "future": "B R O W S E   T H E   F U T U R E", "weather": "Weather", "profile": "Profile",
         "language": "Interface language", "appearance": "Appearance", "behavior": "Behavior",
         "search_engine": "Search engine", "site_theming": "Apply Orbit style to websites",
-        "auto_update": "Automatic updates", "animations": "Smooth animations",
+        "auto_update": "Automatic updates", "animations": "Smooth animations", "support": "Support", "gemini": "Orbit AI", "admin_panel": "Admin panel",
     },
 }
 
@@ -92,6 +92,10 @@ def stylesheet(theme_name):
         background: {theme['bg']};
     }}
 
+    QLabel {{
+        background: transparent;
+    }}
+
     QFrame#chromeBar {{
         background: rgba(12, 10, 20, 205);
         border: 1px solid rgba(90, 74, 120, 100);
@@ -141,8 +145,8 @@ def stylesheet(theme_name):
 
     QFrame#mainSearch {{
         background: rgba(24, 18, 34, 150);
-        border: 1px solid rgba(167,124,255,45);
-        border-radius: 21px;
+        border: 1px solid rgba(167,124,255,22);
+        border-radius: 22px;
     }}
 
     QFrame#searchShell {{
@@ -161,7 +165,7 @@ def stylesheet(theme_name):
 
     QLabel#searchIcon {{
         color: {theme['muted']};
-        font-size: 21px;
+        font-size: 19px;
         font-weight: 700;
         padding-left: 3px;
     }}
@@ -185,8 +189,8 @@ def stylesheet(theme_name):
     QPushButton#searchButton {{
         background: {theme['accent']};
         color: white;
-        border-radius: 18px;
-        font-size: 17px;
+        border-radius: 20px;
+        font-size: 18px;
         font-weight: 700;
     }}
 
@@ -221,7 +225,7 @@ def stylesheet(theme_name):
 
     QLabel#homepageSub {{
         color: {theme['muted']};
-        font-size: 11px;
+        font-size: 12px;
         font-weight: 650;
         letter-spacing: 1.1px;
     }}
@@ -233,10 +237,10 @@ def stylesheet(theme_name):
     }}
 
     QLabel#shortcutCircle {{
-        min-width: 52px;
-        max-width: 52px;
-        min-height: 52px;
-        max-height: 52px;
+        min-width: 48px;
+        max-width: 48px;
+        min-height: 48px;
+        max-height: 48px;
         border-radius: 26px;
         font-size: 21px;
         font-weight: 800;
@@ -254,9 +258,9 @@ def stylesheet(theme_name):
     }}
 
     QFrame#quickShell {{
-        background: rgba(22, 16, 33, 105);
-        border: 1px solid rgba(167, 124, 255, 28);
-        border-radius: 12px;
+        background: rgba(22, 16, 33, 76);
+        border: 1px solid rgba(167, 124, 255, 22);
+        border-radius: 11px;
     }}
 
     QPushButton#addShortcut {{
@@ -274,10 +278,10 @@ def stylesheet(theme_name):
     }}
 
     QPushButton#sidebarNav {{
-        min-height: 43px;
+        min-height: 50px;
         text-align: left;
-        font-size: 13px;
-        font-weight: 700;
+        font-size: 14px;
+        font-weight: 750;
         padding: 9px 12px;
         color: {theme['muted']};
         border-radius: 10px;
@@ -342,20 +346,42 @@ def stylesheet(theme_name):
     }}
 
     QTabBar::tab {{
-        background: {theme['surface']};
+        background: rgba(16, 10, 27, 170);
         color: {theme['muted']};
         border: 1px solid transparent;
-        border-radius: 11px;
-        padding: 10px 17px;
-        margin-right: 5px;
-        font-size: 13px;
-        font-weight: 650;
+        border-radius: 10px;
+        padding: 8px 14px;
+        margin: 3px 4px 0 0;
+        min-width: 92px;
+        font-size: 12px;
+        font-weight: 700;
     }}
 
     QTabBar::tab:selected {{
         background: {theme['surface2']};
         color: {theme['text']};
         border-color: {theme['border']};
+    }}
+
+    QTabBar::close-button {{
+        width: 18px;
+        height: 18px;
+        margin-left: 6px;
+    }}
+
+    QPushButton#tabCloseButton {{
+        background: transparent;
+        border: none;
+        color: {theme['muted']};
+        border-radius: 8px;
+        padding: 0px;
+        font-size: 16px;
+        font-weight: 700;
+    }}
+
+    QPushButton#tabCloseButton:hover {{
+        background: rgba(255, 255, 255, 18);
+        color: {theme['text']};
     }}
 
     QComboBox {{
@@ -392,10 +418,21 @@ def stylesheet(theme_name):
         font-weight: 700;
     }}
 
-    QFrame#settingCard, QFrame#card, QFrame#profileStat, QFrame#achievementCard {{
+    QFrame#settingCard, QFrame#card, QFrame#profileStat {{
         background: {theme['surface']};
         border: 1px solid {theme['border']};
         border-radius: 15px;
+    }}
+
+    QFrame#achievementCard {{
+        background: rgba(13, 23, 32, 235);
+        border: 1px solid {theme['border']};
+        border-radius: 18px;
+    }}
+
+    QFrame#achievementCard[done="true"] {{
+        background: rgba(20, 39, 37, 235);
+        border-color: rgba(70, 218, 164, 110);
     }}
 
     QLabel#settingTitle {{
@@ -425,7 +462,9 @@ def stylesheet(theme_name):
 
     QListWidget::item:selected {{
         background: {theme['surface2']};
-        border-color: {theme['accent']};
+        border: none;
+        outline: none;
+        color: {theme['text']};
     }}
 
     QLabel#profileName {{
@@ -472,12 +511,14 @@ def stylesheet(theme_name):
     QLabel#achievementTitle {{
         color: {theme['text']};
         font-size: 16px;
-        font-weight: 760;
+        font-weight: 800;
+        padding: 0;
     }}
 
     QLabel#achievementDesc {{
         color: {theme['text']};
-        font-size: 13px;
+        font-size: 12px;
+        padding: 0;
     }}
 
     QLabel#achievementDone {{
@@ -485,9 +526,9 @@ def stylesheet(theme_name):
         background: rgba(55, 180, 125, 30);
         border: 1px solid rgba(55, 180, 125, 80);
         border-radius: 8px;
-        padding: 4px 8px;
-        font-size: 11px;
-        font-weight: 700;
+        padding: 3px 7px;
+        font-size: 10px;
+        font-weight: 750;
     }}
 
     QLabel#achievementProgress {{
@@ -495,15 +536,26 @@ def stylesheet(theme_name):
         background: rgba(255,255,255,15);
         border: 1px solid rgba(255,255,255,18);
         border-radius: 8px;
-        padding: 4px 8px;
+        padding: 3px 7px;
+        font-size: 10px;
+        font-weight: 750;
+    }}
+
+    QLabel#achievementReward {{
+        color: {theme['muted']};
         font-size: 11px;
-        font-weight: 700;
+        font-weight: 650;
+        padding: 4px 7px;
+        background: rgba(167, 124, 255, 16);
+        border: 1px solid rgba(167, 124, 255, 28);
+        border-radius: 8px;
     }}
 
     QLabel#achievementProgressText {{
         color: {theme['accent2']};
         font-size: 11px;
-        font-weight: 700;
+        font-weight: 750;
+        padding: 0;
     }}
 
     QScrollBar:vertical {{
@@ -516,6 +568,116 @@ def stylesheet(theme_name):
         border-radius: 4px;
         min-height: 30px;
     }}
+    QFrame#aiHeader {{
+        background: {theme['surface']};
+        border: 1px solid {theme['border']};
+        border-radius: 18px;
+    }}
+
+    QLabel#aiTitle {{
+        color: {theme['accent2']};
+        font-size: 24px;
+        font-weight: 800;
+    }}
+
+    QLabel#aiSubtitle, QLabel#aiStatus, QLabel#aiAttachmentLabel {{
+        color: {theme['muted']};
+        font-size: 12px;
+    }}
+
+    QListWidget#aiChat {{
+        background: transparent;
+        border: none;
+        outline: none;
+        padding: 4px;
+    }}
+
+    QFrame#aiMessageUser, QFrame#aiMessageAssistant {{
+        border-radius: 16px;
+        border: 1px solid {theme['border']};
+    }}
+
+    QFrame#aiMessageUser {{
+        background: rgba(82, 64, 130, 80);
+        margin-left: 120px;
+    }}
+
+    QFrame#aiMessageAssistant {{
+        background: {theme['surface']};
+        margin-right: 120px;
+    }}
+
+    QLabel#aiMessageAuthor {{
+        color: {theme['accent']};
+        font-size: 11px;
+        font-weight: 800;
+    }}
+
+    QLabel#aiMessageText {{
+        color: {theme['text']};
+        font-size: 14px;
+        line-height: 1.4;
+    }}
+
+    QLabel#aiImageChip {{
+        background: {theme['surface2']};
+        border: 1px solid {theme['border']};
+        border-radius: 8px;
+        padding: 5px 8px;
+        color: {theme['muted']};
+    }}
+
+    QFrame#aiComposer {{
+        background: {theme['surface']};
+        border: 1px solid {theme['border']};
+        border-radius: 18px;
+    }}
+
+    QTextEdit#aiInput {{
+        background: transparent;
+        border: none;
+        color: {theme['text']};
+        font-size: 14px;
+        padding: 8px;
+    }}
+
+    QPushButton#aiSend {{
+        background: {theme['accent']};
+        color: #160f20;
+        border: none;
+        border-radius: 27px;
+        font-size: 24px;
+        font-weight: 800;
+    }}
+
+
+    QPushButton#aiQuickAction {{
+        background: {theme['surface2']};
+        color: {theme['text']};
+        border: 1px solid {theme['border']};
+        border-radius: 10px;
+        padding: 7px 11px;
+        font-size: 12px;
+        font-weight: 650;
+    }}
+    QPushButton#aiQuickAction:hover {{
+        background: {theme['accent']};
+        color: #120d1b;
+    }}
+
+    QListWidget#supportList, QListWidget#supportQueue {{
+        background: transparent;
+        border: none;
+    }}
+
+    QPushButton#aiAttachment {{
+        background: {theme['surface2']};
+        color: {theme['text']};
+        border: 1px solid {theme['border']};
+        border-radius: 10px;
+        padding: 8px 12px;
+    }}
+
     """
 
 

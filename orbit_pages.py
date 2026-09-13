@@ -1,8 +1,12 @@
 from urllib.parse import quote_plus, unquote_plus
 import re
+import os
+import sys
+import subprocess
 
 import requests
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, Signal, QObject, QThread, QTimer, QUrl
+from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
@@ -15,8 +19,11 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMessageBox,
+    QTextEdit,
+    QScrollArea,
     QListWidget,
     QListWidgetItem,
+    QMenu,
     QPushButton,
     QSizePolicy,
     QVBoxLayout,
@@ -34,6 +41,9 @@ from orbit_storage import (
     remove_shortcut,
     save_notes,
     save_shortcuts,
+    load_history,
+    load_downloads,
+    save_downloads, update_download, remove_download,
 )
 from orbit_ui import THEMES, fade_in, tr
 
@@ -71,6 +81,49 @@ class AddShortcutDialog(QDialog):
         if url and not url.startswith(("http://", "https://", "orbit://")):
             url = "https://" + url
         return name, url
+
+
+class ConnectionDialog(QDialog):
+    def __init__(self, browser):
+        super().__init__(browser)
+        self.browser = browser
+        self.setWindowTitle("Orbit Connect")
+        self.setMinimumWidth(560)
+        layout = QVBoxLayout(self)
+        title = QLabel("Orbit Connect")
+        title.setObjectName("pageTitle")
+        layout.addWidget(title)
+        info = QLabel("Укажите свой HTTP/HTTPS или SOCKS5 прокси. Orbit применит его ко всему Chromium после перезапуска.")
+        info.setWordWrap(True)
+        info.setObjectName("muted")
+        layout.addWidget(info)
+        self.proxy = QLineEdit(browser.config.get("proxy_url", ""))
+        self.proxy.setPlaceholderText("http://127.0.0.1:8080 или socks5://127.0.0.1:1080")
+        layout.addWidget(self.proxy)
+        self.status = QLabel("")
+        self.status.setObjectName("muted")
+        layout.addWidget(self.status)
+        row = QHBoxLayout()
+        clear = QPushButton("Отключить")
+        save = QPushButton("Сохранить")
+        save.setProperty("accent", True)
+        row.addWidget(clear)
+        row.addStretch()
+        row.addWidget(save)
+        layout.addLayout(row)
+        clear.clicked.connect(lambda: self.proxy.setText(""))
+        save.clicked.connect(self.save)
+
+    def save(self):
+        value = self.proxy.text().strip()
+        if value and not (value.startswith("http://") or value.startswith("https://") or value.startswith("socks5://")):
+            QMessageBox.warning(self, "Orbit", "Используйте http://, https:// или socks5://")
+            return
+        self.browser.config["proxy_url"] = value
+        from orbit_storage import save_config
+        save_config(self.browser.config)
+        self.status.setText("Сохранено. Перезапустите Orbit, чтобы применить сетевой прокси.")
+        self.accept()
 
 
 class WeatherDialog(QDialog):
@@ -219,10 +272,11 @@ class HomePage(QWidget):
 
         search_shell = QFrame()
         search_shell.setObjectName("mainSearch")
-        search_shell.setMaximumWidth(620)
+        search_shell.setMaximumWidth(840)
+        search_shell.setMinimumWidth(720)
         search_shell.setMinimumHeight(54)
         search_row = QHBoxLayout(search_shell)
-        search_row.setContentsMargins(10, 5, 8, 5)
+        search_row.setContentsMargins(12, 6, 10, 6)
         search_row.setSpacing(5)
 
         icon = QLabel("⌕")
@@ -245,7 +299,7 @@ class HomePage(QWidget):
 
         go = QPushButton("→")
         go.setObjectName("searchButton")
-        go.setFixedSize(40, 40)
+        go.setFixedSize(46, 46)
         go.setProperty("accent", True)
         search_row.addWidget(go)
 
@@ -272,6 +326,12 @@ class HomePage(QWidget):
         add.clicked.connect(self.add_site)
         quick_row.addWidget(add)
         self.add_shortcut_button = add
+        connect = QPushButton("◌  Сеть")
+        connect.setObjectName("addShortcut")
+        connect.setToolTip("Настроить прокси для подключений, если это разрешено вашей сетью")
+        connect.clicked.connect(lambda: ConnectionDialog(self.browser).exec())
+        quick_row.addWidget(connect)
+        self.connection_button = connect
 
         center.addWidget(quick_shell, alignment=Qt.AlignmentFlag.AlignHCenter)
 
@@ -465,24 +525,6 @@ class HomePage(QWidget):
             wrapper.mousePressEvent = lambda event, u=item.get("url", ""): self.browser.open_url(u)
             self.shortcut_row.addWidget(wrapper)
 
-        add_wrapper = QFrame()
-        add_wrapper.setObjectName("shortcutItem")
-        add_wrapper.setFixedWidth(72)
-        add_box = QVBoxLayout(add_wrapper)
-        add_box.setContentsMargins(1, 0, 1, 0)
-        add_box.setSpacing(4)
-        add_box.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        plus = QLabel("+")
-        plus.setObjectName("shortcutCircle")
-        plus.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        plus.setStyleSheet("background:rgba(80,64,110,70); color:#d8c9e7; border:1px solid rgba(167,124,255,80); border-radius:28px;")
-        add_box.addWidget(plus, alignment=Qt.AlignmentFlag.AlignCenter)
-        add_label = QLabel(tr(self.browser.config.get("language", "ru"), "add"))
-        add_label.setObjectName("shortcutName")
-        add_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        add_box.addWidget(add_label)
-        add_wrapper.mousePressEvent = lambda event: self.add_site()
-        self.shortcut_row.addWidget(add_wrapper)
 
     def add_site(self):
         dialog = AddShortcutDialog(self)
@@ -545,7 +587,7 @@ class SearchPage(QWidget):
         query = self.input.text().strip()
         if not query:
             return
-        self.browser.navigate_text(query)
+        self.browser.open_url(self.browser.search_url(query))
 
     def open_item(self, item):
         url = item.data(Qt.ItemDataRole.UserRole)
@@ -559,29 +601,73 @@ class HistoryPage(QWidget):
         self.browser = browser
         layout = QVBoxLayout(self)
         layout.setContentsMargins(50, 40, 50, 35)
+        layout.setSpacing(12)
+        header = QHBoxLayout()
         title = QLabel("История")
         title.setObjectName("pageTitle")
-        layout.addWidget(title)
+        header.addWidget(title)
+        header.addStretch()
+        clear = QPushButton("Очистить историю")
+        clear.setObjectName("dangerButton")
+        clear.clicked.connect(self.clear_history)
+        header.addWidget(clear)
+        refresh = QPushButton("↻ Обновить")
+        refresh.clicked.connect(self.refresh)
+        header.addWidget(refresh)
+        layout.addLayout(header)
         self.list = QListWidget()
-        layout.addWidget(self.list, 1)
-        self.refresh()
+        self.list.setSpacing(8)
         self.list.itemDoubleClicked.connect(self.open_item)
+        layout.addWidget(self.list, 1)
+        actions = QHBoxLayout()
+        open_btn = QPushButton("Открыть")
+        remove_btn = QPushButton("Удалить")
+        open_btn.clicked.connect(self.open_selected)
+        remove_btn.clicked.connect(self.remove_selected)
+        actions.addWidget(open_btn); actions.addWidget(remove_btn); actions.addStretch()
+        layout.addLayout(actions)
+        self.refresh()
         fade_in(self)
 
     def refresh(self):
         self.list.clear()
-        for item in reversed(self.browser.web_profile.history().items()):
-            url = item.url().toString()
-            if not url:
-                continue
-            row = QListWidgetItem(f"{item.title() or url}\n{url}")
+        items = list(reversed(load_history()))
+        for entry in items:
+            title = entry.get("title") or entry.get("url") or "Без названия"
+            url = entry.get("url", "")
+            text = f"{title}\n{url}"
+            row = QListWidgetItem(text)
             row.setData(Qt.ItemDataRole.UserRole, url)
             self.list.addItem(row)
+        if not items:
+            self.list.addItem("История пока пуста")
+
+    def selected_url(self):
+        item = self.list.currentItem()
+        if not item:
+            return ""
+        return item.data(Qt.ItemDataRole.UserRole) or ""
+
+    def open_selected(self):
+        url = self.selected_url()
+        if url: self.browser.open_url(url)
 
     def open_item(self, item):
         url = item.data(Qt.ItemDataRole.UserRole)
-        if url:
-            self.browser.open_url(url)
+        if url: self.browser.open_url(url)
+
+    def remove_selected(self):
+        url = self.selected_url()
+        if not url: return
+        items = [x for x in load_history() if x.get("url") != url]
+        from orbit_storage import save_history
+        save_history(items)
+        self.refresh()
+
+    def clear_history(self):
+        from orbit_storage import save_history
+        save_history([])
+        self.refresh()
 
 
 class BookmarksPage(QWidget):
@@ -661,28 +747,227 @@ class NotesPage(QWidget):
 class DownloadsPage(QWidget):
     def __init__(self, browser):
         super().__init__()
+        self.browser = browser
         layout = QVBoxLayout(self)
         layout.setContentsMargins(50, 40, 50, 35)
+        layout.setSpacing(12)
+        header = QHBoxLayout()
         title = QLabel("Загрузки")
         title.setObjectName("pageTitle")
-        layout.addWidget(title)
-        self.list = QListWidget()
-        layout.addWidget(self.list, 1)
-        try:
-            downloads = browser.web_profile.downloads()
-            for item in downloads:
-                self.list.addItem(item.suggestedFileName())
-        except Exception:
+        header.addWidget(title); header.addStretch()
+        refresh = QPushButton("↻ Обновить")
+        refresh.clicked.connect(self.refresh)
+        header.addWidget(refresh)
+        layout.addLayout(header)
+        self.list = QListWidget(); self.list.setSpacing(8); layout.addWidget(self.list, 1)
+        self.list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.list.customContextMenuRequested.connect(self.show_file_menu)
+        actions = QHBoxLayout()
+        for text, slot in [
+            ("Открыть", self.open_selected),
+            ("Открыть папку", self.open_folder),
+            ("Переименовать", self.rename_selected),
+            ("Удалить из списка", self.remove_selected),
+            ("Удалить файл", self.delete_file_and_record),
+            ("VirusTotal", self.virustotal_selected),
+        ]:
+            b = QPushButton(text); b.clicked.connect(slot); actions.addWidget(b)
+        layout.addLayout(actions)
+        self.list.itemDoubleClicked.connect(self.open_item)
+        self.refresh(); fade_in(self)
+
+    def refresh(self):
+        self.list.clear()
+        items = load_downloads()
+        if not items:
             self.list.addItem("Загрузок пока нет")
-        fade_in(self)
+            return
+        for item in items:
+            path = item.get("path", "")
+            state = item.get("state", "completed")
+            title = item.get("filename") or os.path.basename(path) or "Файл"
+            row = QListWidgetItem(f"{title}  ·  {state}\n{path}")
+            row.setData(Qt.ItemDataRole.UserRole, path)
+            self.list.addItem(row)
+
+    def selected_path(self):
+        item = self.list.currentItem()
+        return item.data(Qt.ItemDataRole.UserRole) if item else ""
+
+    def open_item(self, item):
+        self.open_path(item.data(Qt.ItemDataRole.UserRole) or "")
+
+    def show_file_menu(self, position):
+        item = self.list.itemAt(position)
+        if item is None:
+            return
+        self.list.setCurrentItem(item)
+        path = item.data(Qt.ItemDataRole.UserRole) or ""
+        menu = QMenu(self)
+
+        act_open = menu.addAction("Открыть")
+        act_folder = menu.addAction("Открыть папку")
+        act_rename = menu.addAction("Переименовать")
+        menu.addSeparator()
+        act_vt = menu.addAction("Проверить в VirusTotal")
+        menu.addSeparator()
+        act_delete_record = menu.addAction("Удалить из списка")
+        act_delete_file = menu.addAction("Удалить файл")
+
+        chosen = menu.exec(self.list.viewport().mapToGlobal(position))
+        if chosen is act_open:
+            self.open_selected()
+        elif chosen is act_folder:
+            self.open_folder()
+        elif chosen is act_rename:
+            self.rename_selected()
+        elif chosen is act_vt:
+            self.virustotal_selected()
+        elif chosen is act_delete_record:
+            self.remove_selected()
+        elif chosen is act_delete_file:
+            self.delete_file_and_record()
+
+    def delete_file_and_record(self):
+        path = self.selected_path()
+        if not path:
+            return
+        try:
+            if os.path.exists(path):
+                os.remove(path)
+            remove_download(path)
+            self.refresh()
+        except Exception as exc:
+            QMessageBox.warning(self, "Orbit", f"Не удалось удалить файл:\n{exc}")
+
+    def open_path(self, path):
+        if not path or not os.path.exists(path): return
+        if sys.platform == "win32": os.startfile(path)
+        else: subprocess.Popen(["xdg-open", path])
+
+    def open_selected(self): self.open_path(self.selected_path())
+
+    def open_folder(self):
+        path = self.selected_path()
+        if not path: return
+        folder = os.path.dirname(path)
+        if sys.platform == "win32": subprocess.Popen(["explorer", "/select,", os.path.normpath(path)])
+        elif os.path.isdir(folder): subprocess.Popen(["xdg-open", folder])
+
+    def rename_selected(self):
+        path = self.selected_path()
+        if not path or not os.path.exists(path): return
+        old_name = os.path.basename(path)
+        dialog = QDialog(self); dialog.setWindowTitle("Переименовать файл"); form=QFormLayout(dialog)
+        field=QLineEdit(old_name); form.addRow("Новое имя", field); row=QHBoxLayout(); ok=QPushButton("Сохранить"); cancel=QPushButton("Отмена"); row.addWidget(cancel); row.addWidget(ok); form.addRow(row)
+        cancel.clicked.connect(dialog.reject); ok.clicked.connect(dialog.accept)
+        if dialog.exec() != QDialog.DialogCode.Accepted: return
+        new_name = os.path.basename(field.text().strip())
+        if not new_name: return
+        new_path = os.path.join(os.path.dirname(path), new_name)
+        try:
+            os.rename(path, new_path)
+            update_download(path, filename=new_name, path=new_path)
+            self.refresh()
+        except Exception as exc:
+            QMessageBox.warning(self, "Orbit", f"Не удалось переименовать файл:\n{exc}")
+
+    def remove_selected(self):
+        path = self.selected_path()
+        if not path: return
+        remove_download(path); self.refresh()
+
+    def virustotal_selected(self):
+        path = self.selected_path()
+        if not path: return
+        if os.path.exists(path):
+            QMessageBox.information(self, "VirusTotal", "Откроется VirusTotal. Для проверки выберите этот файл в загрузчике VirusTotal.")
+        QDesktopServices.openUrl(QUrl("https://www.virustotal.com/gui/home/upload"))
+
+
+ACHIEVEMENTS = [
+    {"key": "first_launch", "icon": "✦", "title": "Первый шаг", "desc": "Запустите Orbit хотя бы один раз.", "goal": "1 запуск", "stat": "sessions", "maximum": 1, "reward": "Новичок"},
+    {"key": "explorer", "icon": "◎", "title": "Исследователь", "desc": "Открывайте новые страницы и изучайте интернет.", "goal": "10 страниц", "stat": "pages", "maximum": 10, "reward": "Исследователь"},
+    {"key": "collector", "icon": "☆", "title": "Коллекционер", "desc": "Соберите полезные страницы в закладках.", "goal": "5 закладок", "stat": "bookmarks", "maximum": 5, "reward": "Коллекционер"},
+    {"key": "navigator", "icon": "⌁", "title": "Навигатор", "desc": "Настройте быстрый доступ под себя.", "goal": "3 сайта", "stat": "shortcuts", "maximum": 3, "reward": "Навигатор"},
+    {"key": "notes", "icon": "✎", "title": "Архивариус", "desc": "Сохраняйте полезные идеи и записи.", "goal": "5 заметок", "stat": "notes", "maximum": 5, "reward": "Архивариус"},
+    {"key": "founder", "icon": "◆", "title": "Создатель Orbit", "desc": "Особый титул владельца проекта Orbit.", "goal": "Статус создателя", "stat": "founder", "maximum": 1, "reward": "Создатель Orbit"},
+]
+
+def _profile_stats(browser, role):
+    return {
+        "sessions": max(1, int(browser.config.get("stats_sessions", 1))),
+        "pages": int(browser.config.get("stats_pages", 0)),
+        "bookmarks": len(load_bookmarks()),
+        "shortcuts": len(load_shortcuts()),
+        "notes": len(load_notes()),
+        "founder": 1 if (browser.user.get("username", "").lower() == "larsenda" or browser.user.get("title") == "Создатель Orbit") else 0,
+    }
+
+def sync_unlocked_titles(browser, stats):
+    unlocked = set(browser.user.get("unlocked_titles") or [])
+    title_map = {
+        "Новичок":"newcomer", "Исследователь":"explorer", "Коллекционер":"collector",
+        "Навигатор":"navigator", "Архивариус":"archivist", "Создатель Orbit":"creator",
+        "Помощник":"helper", "Администратор":"admin", "Explorer":"explorer"
+    }
+    for item in ACHIEVEMENTS:
+        value = min(stats.get(item["stat"], 0), item["maximum"])
+        if value >= item["maximum"]:
+            unlocked.add(item["reward"])
+            try:
+                requests.post(
+                    f"{browser.API_URL}/api/profile/achievements/claim",
+                    json={"achievement_key": item["key"]},
+                    headers={"Authorization": f"Bearer {browser.token}"},
+                    timeout=4,
+                )
+            except Exception:
+                pass
+    unlocked.add("Explorer")
+    role = browser.user.get("role", "user").lower()
+    if role == "helper": unlocked.add("Помощник")
+    if role == "admin": unlocked.add("Администратор")
+    browser.user["unlocked_titles"] = sorted(unlocked)
+    current = browser.user.get("equipped_title") or browser.user.get("title") or "Explorer"
+    if current not in unlocked:
+        current = "Explorer"
+    browser.user["equipped_title"] = current
+    browser.user["title"] = current
+    from orbit_storage import save_local_profile
+    save_local_profile(browser.user)
+    return unlocked
 
 
 class ProfilePage(QWidget):
     def __init__(self, browser):
         super().__init__()
         self.browser = browser
+        self.sync_titles_from_server()
         self.build()
         fade_in(self, 240)
+
+    def sync_titles_from_server(self):
+        try:
+            response = requests.get(
+                f"{self.browser.API_URL}/api/profile/titles",
+                headers={"Authorization": f"Bearer {self.browser.token}"},
+                timeout=8,
+            )
+            if response.status_code != 200:
+                return
+            data = response.json()
+            unlocked = [t.get("name_ru") for t in data.get("titles", []) if t.get("unlocked")]
+            if unlocked:
+                self.browser.user["unlocked_titles"] = sorted(set(unlocked))
+            equipped = data.get("equipped")
+            if equipped:
+                self.browser.user["equipped_title"] = equipped
+                self.browser.user["title"] = equipped
+            from orbit_storage import save_local_profile
+            save_local_profile(self.browser.user)
+        except Exception:
+            pass
 
     def avatar_path(self):
         path = self.browser.config.get("avatar_path", "")
@@ -725,8 +1010,10 @@ class ProfilePage(QWidget):
         handle.setObjectName("muted")
         info.addWidget(handle)
         role = user.get("role", "user")
-        role_label = QLabel("Создатель Orbit" if role == "founder" else (user.get("title", "Explorer") or "Explorer"))
-        role_label.setObjectName("founderBadge" if role == "founder" else "muted")
+        sync_unlocked_titles(self.browser, _profile_stats(self.browser, role))
+        role_label = QLabel(self.browser.user.get("equipped_title") or "Explorer")
+        role_label.setObjectName("founderBadge" if (self.browser.user.get("equipped_title") == "Создатель Orbit") else "muted")
+        self.current_title_label = role_label
         info.addWidget(role_label)
         top.addLayout(info)
         top.addStretch()
@@ -748,11 +1035,11 @@ class ProfilePage(QWidget):
         progress = xp % 500
         stats = QHBoxLayout()
         stats.setSpacing(14)
-        for value, label in [(str(level), "Уровень"), (str(xp), "XP"), ("Создатель" if role == "founder" else "Участник", "Статус")]:
+        for value, label in [(str(level), "Уровень"), (str(xp), "XP"), ({"admin":"Админ","helper":"Помощник"}.get(role, "Пользователь"), "Статус")]:
             card = QFrame()
             card.setObjectName("profileStat")
             cl = QVBoxLayout(card)
-            cl.setContentsMargins(16, 14, 16, 14)
+            cl.setContentsMargins(18, 16, 18, 16)
             val = QLabel(value)
             val.setObjectName("profileStatValue")
             lab = QLabel(label)
@@ -770,62 +1057,97 @@ class ProfilePage(QWidget):
         section.setObjectName("section")
         layout.addWidget(section)
 
-        stats_data = {
-            "sessions": max(1, int(self.browser.config.get("stats_sessions", 1))),
-            "pages": int(self.browser.config.get("stats_pages", 0)),
-            "bookmarks": len(load_bookmarks()),
-            "shortcuts": len(load_shortcuts()),
-            "notes": len(load_notes()),
-        }
-        achievements = [
-            ("🚀", "Первый запуск", "Первый запуск Orbit.", "Запустить Orbit", min(stats_data["sessions"], 1), 1),
-            ("🌐", "Исследователь", "Посещайте сайты и открывайте новые страницы.", "Открыть 10 страниц", min(stats_data["pages"], 10), 10),
-            ("🔖", "Коллекционер", "Сохраняйте полезные страницы в закладки.", "Добавить 5 закладок", min(stats_data["bookmarks"], 5), 5),
-            ("⚡", "Быстрый доступ", "Настройте главную страницу под себя.", "Добавить 3 сайта", min(stats_data["shortcuts"], 3), 3),
-            ("📝", "Заметки", "Сохраняйте идеи и полезную информацию.", "Создать 5 заметок", min(stats_data["notes"], 5), 5),
-            ("👑", "Создатель Orbit", "Особый статус владельца проекта.", "Права создателя", 1 if role == "founder" else 0, 1),
-        ]
-        grid = QGridLayout()
-        grid.setHorizontalSpacing(14)
-        grid.setVerticalSpacing(14)
-        for i, (icon, title, desc, goal, value, maximum) in enumerate(achievements):
+        role = user.get("role", "user")
+        stats_data = _profile_stats(self.browser, role)
+        sync_unlocked_titles(self.browser, stats_data)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll_content = QWidget()
+        grid = QGridLayout(scroll_content)
+        grid.setContentsMargins(2, 2, 12, 8)
+        grid.setHorizontalSpacing(18)
+        grid.setVerticalSpacing(18)
+        for i, item in enumerate(ACHIEVEMENTS):
+            value = min(stats_data.get(item["stat"], 0), item["maximum"])
+            done = value >= item["maximum"]
             card = QFrame()
             card.setObjectName("achievementCard")
+            card.setProperty("done", "true" if done else "false")
+            card.setMinimumHeight(172)
+            card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
             cl = QVBoxLayout(card)
-            cl.setContentsMargins(16, 15, 16, 15)
-            cl.setSpacing(7)
+            cl.setContentsMargins(18, 16, 18, 16)
+            cl.setSpacing(8)
             head = QHBoxLayout()
-            ico = QLabel(icon)
+            ico = QLabel(item["icon"])
             ico.setObjectName("achievementIcon")
             head.addWidget(ico)
-            ttl = QLabel(title)
+            ttl = QLabel(item["title"])
             ttl.setObjectName("achievementTitle")
-            head.addWidget(ttl)
+            ttl.setWordWrap(True)
+            ttl.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+            head.addWidget(ttl, 1)
             head.addStretch()
-            done = value >= maximum
             state = QLabel("Получено" if done else "В процессе")
             state.setObjectName("achievementDone" if done else "achievementProgress")
-            head.addWidget(state)
+            state.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            state.setMinimumWidth(96)
+            head.addWidget(state, 0, Qt.AlignmentFlag.AlignTop)
             cl.addLayout(head)
-            dd = QLabel(desc)
+            dd = QLabel(item["desc"])
             dd.setObjectName("achievementDesc")
             dd.setWordWrap(True)
+            dd.setMinimumHeight(30)
             cl.addWidget(dd)
-            goal_label = QLabel(f"Цель: {goal}")
-            goal_label.setObjectName("muted")
-            goal_label.setWordWrap(True)
-            cl.addWidget(goal_label)
-            prog = QLabel(f"Прогресс: {value}/{maximum}")
+            reward = QLabel(f"Награда: титул «{item['reward']}»")
+            reward.setObjectName("achievementReward")
+            reward.setWordWrap(True)
+            cl.addWidget(reward)
+            prog = QLabel(f"Прогресс: {value}/{item['maximum']}")
             prog.setObjectName("achievementProgressText")
             cl.addWidget(prog)
+            if done:
+                card.setToolTip(f"Нажмите, чтобы надеть титул «{item['reward']}»")
+                card.mousePressEvent = lambda _e, reward=item["reward"]: self.equip_title(reward)
+            else:
+                card.setToolTip(f"Выполните: {item['goal']}")
             grid.addWidget(card, i // 2, i % 2)
-        layout.addLayout(grid)
-        layout.addStretch()
+        scroll.setWidget(scroll_content)
+        layout.addWidget(scroll, 1)
+
+    def equip_title(self, title):
+        unlocked = set(self.browser.user.get("unlocked_titles") or [])
+        if title not in unlocked:
+            return
+        self.browser.user["equipped_title"] = title
+        self.browser.user["title"] = title
+        from orbit_storage import save_local_profile
+        save_local_profile(self.browser.user)
+        try:
+            requests.post(
+                f"{self.browser.API_URL}/api/profile/title",
+                json={"title_key": {"Новичок":"newcomer","Исследователь":"explorer","Коллекционер":"collector","Навигатор":"navigator","Архивариус":"archivist","Создатель Orbit":"creator","Помощник":"helper","Администратор":"admin","Explorer":"explorer"}.get(title, "")},
+                headers={"Authorization": f"Bearer {self.browser.token}"},
+                timeout=8,
+            )
+        except Exception:
+            pass
+        if hasattr(self, "current_title_label"):
+            self.current_title_label.setText(title)
+            self.current_title_label.setObjectName("founderBadge" if title == "Создатель Orbit" else "muted")
+            self.current_title_label.style().unpolish(self.current_title_label)
+            self.current_title_label.style().polish(self.current_title_label)
+        self.browser.update_identity_ui()
+        try:
+            self.browser.identityChanged.emit()
+        except Exception:
+            pass
 
     def edit_profile(self):
         dialog = EditProfileDialog(self.browser)
         if dialog.exec() == QDialog.DialogCode.Accepted:
-            self.browser.user = self.browser.user
             self.browser.update_identity_ui()
             self.refresh_avatar()
 
@@ -839,7 +1161,12 @@ class EditProfileDialog(QDialog):
         avatar_col=QVBoxLayout();
         btn=QPushButton("Изменить фотографию"); btn.clicked.connect(self.choose_avatar); avatar_col.addWidget(btn)
         note=QLabel("JPG, PNG или WEBP • хранится локально на этом компьютере"); note.setObjectName("muted"); note.setWordWrap(True); avatar_col.addWidget(note); avatar_row.addLayout(avatar_col); avatar_row.addStretch(); layout.addLayout(avatar_row)
-        form=QFormLayout(); self.display=QLineEdit(browser.user.get("display_name") or browser.user.get("username", "")); self.bio=QLineEdit(browser.user.get("bio", "")); self.bio.setPlaceholderText("Коротко расскажите о себе"); self.title=QLineEdit(browser.user.get("title", "Explorer")); self.theme=QComboBox(); self.theme.addItems(THEMES.keys()); self.theme.setCurrentText(browser.user.get("profile_theme", browser.current_theme)); form.addRow("Имя профиля",self.display); form.addRow("О себе",self.bio); form.addRow("Титул",self.title); form.addRow("Тема профиля",self.theme); layout.addLayout(form)
+        form=QFormLayout(); self.display=QLineEdit(browser.user.get("display_name") or browser.user.get("username", "")); self.bio=QLineEdit(browser.user.get("bio", "")); self.bio.setPlaceholderText("Коротко расскажите о себе"); self.title_info=QComboBox(); self.title_info.setToolTip("Можно выбрать только уже полученный титул"); unlocked = browser.user.get("unlocked_titles") or [browser.user.get("equipped_title") or browser.user.get("title", "Explorer")]; current_title=browser.user.get("equipped_title") or browser.user.get("title", "Explorer");
+        for title_item in unlocked:
+            if title_item and self.title_info.findText(title_item) < 0: self.title_info.addItem(title_item);
+        idx=self.title_info.findText(current_title);
+        if idx >= 0: self.title_info.setCurrentIndex(idx);
+        self.theme=QComboBox(); self.theme.addItems(THEMES.keys()); self.theme.setCurrentText(browser.user.get("profile_theme", browser.current_theme)); form.addRow("Имя профиля",self.display); form.addRow("О себе",self.bio); form.addRow("Титул",self.title_info); form.addRow("Тема профиля",self.theme); layout.addLayout(form)
         row=QHBoxLayout(); cancel=QPushButton("Отмена"); save=QPushButton("Сохранить"); save.setProperty("accent",True); row.addWidget(cancel); row.addWidget(save); layout.addLayout(row); cancel.clicked.connect(self.reject); save.clicked.connect(self.save); self.avatar_source=""; self.refresh_preview()
 
     def refresh_preview(self):
@@ -859,28 +1186,39 @@ class EditProfileDialog(QDialog):
     def save(self):
         display_name = self.display.text().strip()
         bio = self.bio.text().strip()
-        title = self.title.text().strip()
+        title = self.title_info.currentText().strip() or "Explorer"
         profile_theme = self.theme.currentText()
-        saved_remote = False
         try:
             response = requests.patch(
                 f"{self.browser.API_URL}/api/profile",
-                json={"display_name": display_name, "bio": bio, "title": title, "profile_theme": profile_theme},
+                json={"display_name": display_name, "bio": bio, "profile_theme": profile_theme},
                 headers={"Authorization": f"Bearer {self.browser.token}"},
                 timeout=15,
             )
             if response.status_code == 200:
-                data = response.json()
-                self.browser.user = data.get("user", self.browser.user)
-                saved_remote = True
+                self.browser.user = response.json().get("user", self.browser.user)
             elif response.status_code != 404:
-                QMessageBox.warning(self, "Orbit", "Не удалось сохранить профиль на сервере. Изменения останутся локально до следующей синхронизации.\n\n" + response.text[:300])
+                QMessageBox.warning(self, "Orbit", "Не удалось сохранить профиль на сервере. Изменения останутся локально.\n\n" + response.text[:300])
+            title_keys={"Новичок":"newcomer","Исследователь":"explorer","Коллекционер":"collector","Навигатор":"navigator","Архивариус":"archivist","Создатель Orbit":"creator","Помощник":"helper","Администратор":"admin","Explorer":"explorer"}
+            title_key=title_keys.get(title)
+            if title_key:
+                title_response = requests.post(
+                    f"{self.browser.API_URL}/api/profile/title",
+                    json={"title_key": title_key},
+                    headers={"Authorization": f"Bearer {self.browser.token}"},
+                    timeout=8,
+                )
+                if title_response.status_code == 200:
+                    payload = title_response.json().get("user")
+                    if payload:
+                        self.browser.user.update(payload)
         except Exception:
             pass
 
         self.browser.user["display_name"] = display_name or self.browser.user.get("username", "Orbit")
         self.browser.user["bio"] = bio
         self.browser.user["title"] = title or "Explorer"
+        self.browser.user["equipped_title"] = title or "Explorer"
         self.browser.user["profile_theme"] = profile_theme
         self.browser.config["avatar_path"] = str(AVATAR_FILE) if AVATAR_FILE.exists() else self.browser.config.get("avatar_path", "")
         from orbit_storage import save_config, save_local_profile
@@ -889,7 +1227,527 @@ class EditProfileDialog(QDialog):
         self.browser.current_theme = profile_theme if profile_theme in self.browser.THEMES else self.browser.current_theme
         self.browser.apply_theme()
         self.browser.update_identity_ui()
+        try:
+            self.browser.identityChanged.emit()
+        except Exception:
+            pass
         self.accept()
+
+
+class GeminiWorker(QObject):
+    finished = Signal(dict)
+    failed = Signal(str)
+
+    def __init__(self, browser, model, message, images, previous_interaction_id):
+        super().__init__()
+        self.browser = browser
+        self.model = model
+        self.message = message
+        self.images = images
+        self.previous_interaction_id = previous_interaction_id
+
+    def run(self):
+        try:
+            import base64
+            payload = {
+                "model": self.model,
+                "message": self.message,
+                "previous_interaction_id": self.previous_interaction_id,
+                "images": [],
+            }
+            for image_path, mime_type in self.images:
+                with open(image_path, "rb") as f:
+                    raw = f.read()
+                if len(raw) > 12 * 1024 * 1024:
+                    raise ValueError("Изображение слишком большое (максимум 12 МБ).")
+                payload["images"].append({"mime_type": mime_type, "data": base64.b64encode(raw).decode("ascii")})
+            response = requests.post(
+                f"{self.browser.API_URL}/api/ai/chat",
+                json=payload,
+                headers={"Authorization": f"Bearer {self.browser.token}"},
+                timeout=180,
+            )
+            if response.status_code >= 400:
+                try:
+                    detail = response.json().get("detail", response.text)
+                except Exception:
+                    detail = response.text
+                raise RuntimeError(str(detail))
+            self.finished.emit(response.json())
+        except Exception as exc:
+            self.failed.emit(str(exc))
+
+
+class GeminiPage(QWidget):
+    def __init__(self, browser):
+        super().__init__()
+        self.browser = browser
+        self.interaction_id = None
+        self.attachments = []
+        self.thread = None
+        self.worker = None
+        self.models = []
+        self.language = self.browser.config.get("language", "ru")
+        self.build()
+        self.load_models()
+        fade_in(self, 220)
+
+    def tr(self, ru, en):
+        return ru if self.browser.config.get("language", "ru") == "ru" else en
+
+    def build(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(28, 22, 28, 22)
+        layout.setSpacing(12)
+
+        header = QFrame()
+        header.setObjectName("aiHeader")
+        h = QHBoxLayout(header)
+        h.setContentsMargins(18, 14, 18, 14)
+        title_box = QVBoxLayout()
+        title = QLabel("Orbit AI")
+        title.setObjectName("aiTitle")
+        subtitle = QLabel(self.tr("Gemini внутри Orbit — задавайте вопросы, прикладывайте фото и меняйте модель.", "Gemini inside Orbit — ask questions, attach photos and switch models."))
+        subtitle.setObjectName("aiSubtitle")
+        subtitle.setWordWrap(True)
+        title_box.addWidget(title)
+        title_box.addWidget(subtitle)
+        h.addLayout(title_box, 1)
+
+        self.model_combo = QComboBox()
+        self.model_combo.setMinimumWidth(250)
+        self.model_combo.setToolTip(self.tr("Выберите модель Gemini", "Choose a Gemini model"))
+        h.addWidget(self.model_combo)
+        new_chat = QPushButton(self.tr("Новый чат", "New chat"))
+        new_chat.setProperty("accent", False)
+        new_chat.clicked.connect(self.new_chat)
+        h.addWidget(new_chat)
+        layout.addWidget(header)
+
+        quick = QHBoxLayout()
+        for label, prompt in [
+            (self.tr("Разобрать фото", "Analyze photo"), "Разбери прикреплённое фото подробно: что на нём, важный текст и что означает изображение."),
+            (self.tr("Перевести", "Translate"), "Переведи текст с прикреплённого фото. Сохрани смысл и укажи перевод по строкам."),
+            (self.tr("Решить задачу", "Solve task"), "Реши задачу с фото пошагово и объясни ход решения."),
+            (self.tr("Объяснить", "Explain"), "Объясни содержимое прикреплённого фото простыми словами.")
+        ]:
+            btn = QPushButton(label)
+            btn.setObjectName("aiQuickAction")
+            btn.clicked.connect(lambda _, p=prompt: self.set_quick_prompt(p))
+            quick.addWidget(btn)
+        quick.addStretch()
+        layout.addLayout(quick)
+
+        self.chat = QListWidget()
+        self.chat.setObjectName("aiChat")
+        self.chat.setSelectionMode(QListWidget.SelectionMode.NoSelection)
+        self.chat.setSpacing(10)
+        self.chat.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        layout.addWidget(self.chat, 1)
+
+        attach_row = QHBoxLayout()
+        attach = QPushButton("＋ " + self.tr("Фото", "Photo"))
+        attach.setObjectName("aiAttachment")
+        attach.clicked.connect(self.choose_images)
+        attach_row.addWidget(attach)
+        self.attachment_label = QLabel(self.tr("Нет вложений", "No attachments"))
+        self.attachment_label.setObjectName("aiAttachmentLabel")
+        attach_row.addWidget(self.attachment_label, 1)
+        layout.addLayout(attach_row)
+
+        composer = QFrame()
+        composer.setObjectName("aiComposer")
+        c = QHBoxLayout(composer)
+        c.setContentsMargins(10, 10, 10, 10)
+        self.input = QTextEdit()
+        self.input.setObjectName("aiInput")
+        self.input.setFixedHeight(74)
+        self.input.setPlaceholderText(self.tr("Напишите вопрос…", "Ask Gemini anything…"))
+        c.addWidget(self.input, 1)
+        send = QPushButton("↑")
+        send.setObjectName("aiSend")
+        send.setProperty("accent", True)
+        send.setFixedSize(54, 54)
+        send.clicked.connect(self.send_message)
+        c.addWidget(send)
+        layout.addWidget(composer)
+
+        self.status = QLabel(self.tr("Готово", "Ready"))
+        self.status.setObjectName("aiStatus")
+        layout.addWidget(self.status)
+
+    def load_models(self):
+        try:
+            response = requests.get(
+                f"{self.browser.API_URL}/api/ai/models",
+                headers={"Authorization": f"Bearer {self.browser.token}"},
+                timeout=15,
+            )
+            if response.status_code != 200:
+                self.status.setText(self.tr("Не удалось загрузить список моделей.", "Could not load model list."))
+                return
+            data = response.json()
+            self.models = data.get("models") or []
+            self.model_combo.clear()
+            preferred = self.browser.config.get("gemini_model", "gemini-3.8-flash")
+            preferred_index = 0
+            for index, model in enumerate(self.models):
+                self.model_combo.addItem(model.get("name", model.get("id")), model.get("id"))
+                self.model_combo.setItemData(index, model.get("description", ""), Qt.ItemDataRole.ToolTipRole)
+                if model.get("id") == preferred:
+                    preferred_index = index
+            if self.models:
+                self.model_combo.setCurrentIndex(preferred_index)
+                self.browser.config["gemini_model"] = self.model_combo.currentData()
+                from orbit_storage import save_config
+                save_config(self.browser.config)
+                if data.get("configured"):
+                    self.status.setText(self.tr("Gemini готов. Можно писать или прикрепить фото.", "Gemini is ready. Send a message or attach a photo."))
+                else:
+                    self.status.setText(self.tr("Добавьте GEMINI_API_KEY в Render, чтобы включить чат.", "Add GEMINI_API_KEY to Render to enable chat."))
+        except Exception as exc:
+            self.status.setText(self.tr("Сервер Orbit AI недоступен.", "Orbit AI server is unavailable.") + f"  {exc}")
+
+    def add_message(self, role, text, images=None):
+        wrapper = QFrame()
+        wrapper.setObjectName("aiMessageUser" if role == "user" else "aiMessageAssistant")
+        box = QVBoxLayout(wrapper)
+        box.setContentsMargins(14, 12, 14, 12)
+        who = QLabel("Вы" if role == "user" else "Gemini")
+        who.setObjectName("aiMessageAuthor")
+        box.addWidget(who)
+        if images:
+            chips = QHBoxLayout()
+            for path, _ in images:
+                label = QLabel(os.path.basename(path))
+                label.setObjectName("aiImageChip")
+                chips.addWidget(label)
+            chips.addStretch()
+            box.addLayout(chips)
+        body = QLabel(text)
+        body.setObjectName("aiMessageText")
+        body.setWordWrap(True)
+        body.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse | Qt.TextInteractionFlag.TextSelectableByKeyboard)
+        box.addWidget(body)
+        item = QListWidgetItem()
+        item.setSizeHint(wrapper.sizeHint())
+        self.chat.addItem(item)
+        self.chat.setItemWidget(item, wrapper)
+        self.chat.scrollToBottom()
+
+    def set_quick_prompt(self, prompt):
+        self.input.setPlainText(prompt)
+        self.input.setFocus()
+
+    def choose_images(self):
+        paths, _ = QFileDialog.getOpenFileNames(self, self.tr("Выбрать фото", "Choose images"), "", "Изображения (*.png *.jpg *.jpeg *.webp)")
+        if not paths:
+            return
+        self.attachments = []
+        for path in paths[:4]:
+            lower = path.lower()
+            mime = "image/png" if lower.endswith(".png") else "image/webp" if lower.endswith(".webp") else "image/jpeg"
+            self.attachments.append((path, mime))
+        self.attachment_label.setText(", ".join(os.path.basename(p) for p, _ in self.attachments))
+
+    def new_chat(self):
+        self.interaction_id = None
+        self.attachments = []
+        self.attachment_label.setText(self.tr("Нет вложений", "No attachments"))
+        self.chat.clear()
+        self.status.setText(self.tr("Новый чат готов.", "New chat is ready."))
+
+    def send_message(self):
+        if self.thread is not None:
+            return
+        message = self.input.toPlainText().strip()
+        images = list(self.attachments)
+        if not message and not images:
+            return
+        model = self.model_combo.currentData() or self.browser.config.get("gemini_model", "gemini-3.8-flash")
+        self.browser.config["gemini_model"] = model
+        from orbit_storage import save_config
+        save_config(self.browser.config)
+        self.add_message("user", message or self.tr("Фото отправлено на анализ.", "Image sent for analysis."), images)
+        self.input.clear()
+        self.attachments = []
+        self.attachment_label.setText(self.tr("Нет вложений", "No attachments"))
+        self.status.setText(self.tr("Gemini думает…", "Gemini is thinking…"))
+        self.thread = QThread()
+        self.worker = GeminiWorker(self.browser, model, message, images, self.interaction_id)
+        self.worker.moveToThread(self.thread)
+        self.thread.started.connect(self.worker.run)
+        self.worker.finished.connect(self.on_finished)
+        self.worker.failed.connect(self.on_failed)
+        self.worker.finished.connect(self.thread.quit)
+        self.worker.failed.connect(self.thread.quit)
+        self.thread.finished.connect(self.thread.deleteLater)
+        self.worker.finished.connect(self.worker.deleteLater)
+        self.worker.failed.connect(self.worker.deleteLater)
+        self.thread.finished.connect(self.clear_worker)
+        self.thread.start()
+
+    def clear_worker(self):
+        self.thread = None
+        self.worker = None
+
+    def on_finished(self, data):
+        self.interaction_id = data.get("interaction_id") or self.interaction_id
+        self.add_message("assistant", data.get("text", ""))
+        self.status.setText(self.tr("Готово", "Ready"))
+
+    def on_failed(self, message):
+        self.add_message("assistant", self.tr("Не удалось получить ответ Gemini: ", "Gemini request failed: ") + message)
+        self.status.setText(self.tr("Ошибка запроса", "Request failed"))
+
+    def refresh_language(self):
+        self.language = self.browser.config.get("language", "ru")
+        self.input.setPlaceholderText(self.tr("Напишите вопрос…", "Ask Gemini anything…"))
+        self.attachment_label.setText(self.tr("Нет вложений", "No attachments"))
+
+
+
+class AdminPanelPage(QWidget):
+    def __init__(self, browser):
+        super().__init__()
+        self.browser = browser
+        role = browser.user.get("role", "user").lower()
+        if role != "admin":
+            return
+        layout = QVBoxLayout(self); layout.setContentsMargins(50, 36, 50, 35); layout.setSpacing(12)
+        header = QHBoxLayout()
+        title = QLabel("Админ-панель")
+        title.setObjectName("pageTitle"); header.addWidget(title); header.addStretch()
+        refresh = QPushButton("↻ Обновить"); refresh.clicked.connect(self.refresh); header.addWidget(refresh)
+        layout.addLayout(header)
+        self.summary = QLabel("Загрузка…"); self.summary.setObjectName("muted"); self.summary.setWordWrap(True); layout.addWidget(self.summary)
+        self.users = QListWidget(); layout.addWidget(self.users, 1)
+        self.status = QLabel(""); self.status.setObjectName("muted"); layout.addWidget(self.status)
+        self.refresh()
+        fade_in(self)
+
+    def refresh(self):
+        try:
+            r = requests.get(f"{self.browser.API_URL}/api/admin/overview", headers={"Authorization": f"Bearer {self.browser.token}"}, timeout=10)
+            data = r.json()
+            if r.status_code != 200:
+                self.summary.setText("Нет доступа к админ-панели.")
+                return
+            self.summary.setText(f"Пользователи: {data.get('users',0)} · Helper: {data.get('helpers',0)} · Admin: {data.get('admins',0)} · Открытых обращений: {data.get('open_tickets',0)}")
+            u = requests.get(f"{self.browser.API_URL}/api/admin/users", headers={"Authorization": f"Bearer {self.browser.token}"}, timeout=10)
+            self.users.clear()
+            if u.status_code == 200:
+                for item in u.json().get("users", []):
+                    row = QListWidgetItem(f"{item['display_name']} · {item['role']} · {item['title']}")
+                    row.setData(Qt.ItemDataRole.UserRole, item.get("id"))
+                    self.users.addItem(row)
+        except Exception as exc:
+            self.status.setText(f"Ошибка загрузки панели: {exc}")
+
+
+class SupportTicketDialog(QDialog):
+    def __init__(self, parent=None, lang="ru"):
+        super().__init__(parent)
+        self.lang = lang
+        self.setWindowTitle("Связаться с поддержкой" if lang == "ru" else "Contact support")
+        self.setMinimumSize(520, 380)
+        layout = QVBoxLayout(self)
+        title = QLabel("Сообщить о проблеме" if lang == "ru" else "Report a problem")
+        title.setObjectName("pageTitle")
+        layout.addWidget(title)
+        self.subject = QLineEdit()
+        self.subject.setPlaceholderText("Например: не сохраняется профиль" if lang == "ru" else "For example: profile is not saving")
+        self.message = QTextEdit()
+        self.message.setPlaceholderText("Опишите проблему как можно понятнее…" if lang == "ru" else "Describe the issue as clearly as possible…")
+        form = QFormLayout()
+        form.addRow("Тема" if lang == "ru" else "Subject", self.subject)
+        form.addRow("Сообщение" if lang == "ru" else "Message", self.message)
+        layout.addLayout(form)
+        buttons = QHBoxLayout()
+        cancel = QPushButton("Отмена" if lang == "ru" else "Cancel")
+        send = QPushButton("Отправить" if lang == "ru" else "Send")
+        send.setProperty("accent", True)
+        cancel.clicked.connect(self.reject)
+        send.clicked.connect(self.accept)
+        buttons.addStretch()
+        buttons.addWidget(cancel)
+        buttons.addWidget(send)
+        layout.addLayout(buttons)
+
+    def values(self):
+        return self.subject.text().strip(), self.message.toPlainText().strip()
+
+
+class SupportPage(QWidget):
+    def __init__(self, browser):
+        super().__init__()
+        self.browser = browser
+        self.lang = browser.config.get("language", "ru")
+        self.tickets = []
+        self.build()
+        self.load_tickets()
+        if browser.user.get("role", "user").lower() in {"helper", "admin"}:
+            self.load_queue()
+        self.sync_timer = QTimer(self)
+        self.sync_timer.setInterval(3000)
+        self.sync_timer.timeout.connect(self.sync_support)
+        self.sync_timer.start()
+        fade_in(self, 220)
+
+    def tr(self, ru, en):
+        return ru if self.browser.config.get("language", "ru") == "ru" else en
+
+    def build(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(36, 28, 36, 30)
+        layout.setSpacing(12)
+        title = QLabel(self.tr("Orbit Помощь", "Orbit Support"))
+        title.setObjectName("pageTitle")
+        layout.addWidget(title)
+        sub = QLabel(self.tr(
+            "Задайте вопрос, сообщите об ошибке или попросите помощника разобраться. Между обращениями стоит короткий антиспам-кд.",
+            "Ask a question, report a bug, or ask a helper to investigate. A short anti-spam cooldown protects the support queue."
+        ))
+        sub.setObjectName("homepageSub")
+        sub.setWordWrap(True)
+        layout.addWidget(sub)
+
+        actions = QHBoxLayout()
+        new_ticket = QPushButton("＋ " + self.tr("Новое обращение", "New request"))
+        new_ticket.setProperty("accent", True)
+        new_ticket.clicked.connect(self.new_ticket)
+        actions.addWidget(new_ticket)
+        refresh = QPushButton("↻ " + self.tr("Обновить", "Refresh"))
+        refresh.clicked.connect(self.load_tickets)
+        actions.addWidget(refresh)
+        actions.addStretch()
+        layout.addLayout(actions)
+
+        self.list = QListWidget()
+        self.list.setObjectName("supportList")
+        layout.addWidget(self.list, 1)
+
+        role = self.browser.user.get("role", "user").lower()
+        if role in {"helper", "admin"}:
+            sep = QLabel(self.tr("Очередь помощи для Helper / Admin", "Helper / Admin support queue"))
+            sep.setObjectName("section")
+            layout.addWidget(sep)
+            self.queue = QListWidget()
+            self.queue.setObjectName("supportQueue")
+            layout.addWidget(self.queue, 1)
+            self.queue.itemClicked.connect(self.reply_selected)
+        else:
+            self.queue = None
+
+        self.status = QLabel("")
+        self.status.setObjectName("muted")
+        layout.addWidget(self.status)
+
+    def sync_support(self):
+        # Быстрая синхронизация: обращения и ответы обновляются без перезапуска страницы.
+        if not self.isVisible():
+            return
+        self.load_tickets()
+        if self.queue is not None:
+            self.load_queue()
+
+    def new_ticket(self):
+        dialog = SupportTicketDialog(self, self.browser.config.get("language", "ru"))
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        subject, message = dialog.values()
+        if not subject or not message:
+            QMessageBox.warning(self, "Orbit", self.tr("Заполните тему и сообщение.", "Fill in the subject and message."))
+            return
+        try:
+            r = requests.post(
+                f"{self.browser.API_URL}/api/support/tickets",
+                json={"subject": subject, "message": message},
+                headers={"Authorization": f"Bearer {self.browser.token}"},
+                timeout=15,
+            )
+            if r.status_code == 429:
+                QMessageBox.information(self, "Orbit", self.tr("Слишком часто. Подождите немного перед следующим обращением.", "Too fast. Please wait a little before sending another request."))
+                return
+            if r.status_code >= 400:
+                detail = r.json().get("detail", r.text) if r.headers.get("content-type", "").startswith("application/json") else r.text
+                raise RuntimeError(str(detail))
+            self.status.setText(self.tr("Обращение отправлено помощникам.", "Your request was sent to the support team."))
+            self.load_tickets()
+        except Exception as exc:
+            self.status.setText(self.tr("Не удалось отправить обращение: ", "Could not send request: ") + str(exc))
+
+    def closeEvent(self, event):
+        if hasattr(self, "sync_timer"):
+            self.sync_timer.stop()
+        super().closeEvent(event)
+
+    def ticket_text(self, ticket):
+        status_map = {"open": self.tr("Открыто", "Open"), "pending": self.tr("В работе", "In progress"), "closed": self.tr("Закрыто", "Closed")}
+        text = f"{ticket.get('subject','')}  ·  {status_map.get(ticket.get('status'), ticket.get('status',''))}\n{ticket.get('message','')}"
+        if ticket.get("reply"):
+            text += "\n\n" + self.tr("Ответ: ", "Reply: ") + ticket["reply"]
+        return text
+
+    def load_tickets(self):
+        try:
+            r = requests.get(f"{self.browser.API_URL}/api/support/my", headers={"Authorization": f"Bearer {self.browser.token}"}, timeout=12)
+            if r.status_code != 200:
+                return
+            self.tickets = r.json().get("tickets", [])
+            self.list.clear()
+            for t in self.tickets:
+                item = QListWidgetItem(self.ticket_text(t))
+                self.list.addItem(item)
+        except Exception:
+            pass
+
+    def load_queue(self):
+        if self.queue is None:
+            return
+        try:
+            r = requests.get(f"{self.browser.API_URL}/api/support/tickets", headers={"Authorization": f"Bearer {self.browser.token}"}, timeout=12)
+            if r.status_code != 200:
+                return
+            self.queue.clear()
+            for t in r.json().get("tickets", []):
+                item = QListWidgetItem(f"#{t['id']} · {t['display_name']} · {t['subject']}\n{t['message']}")
+                item.setData(Qt.ItemDataRole.UserRole, t)
+                self.queue.addItem(item)
+        except Exception:
+            pass
+
+    def reply_selected(self, item):
+        ticket = item.data(Qt.ItemDataRole.UserRole) or {}
+        dialog = QDialog(self)
+        dialog.setWindowTitle(self.tr("Ответ пользователю", "Reply to user"))
+        dialog.setMinimumSize(520, 360)
+        layout = QVBoxLayout(dialog)
+        info = QLabel(f"#{ticket.get('id')} · {ticket.get('display_name','') }\n{ticket.get('message','')}")
+        info.setWordWrap(True)
+        layout.addWidget(info)
+        reply = QTextEdit()
+        reply.setPlaceholderText(self.tr("Ваш ответ…", "Your reply…"))
+        layout.addWidget(reply, 1)
+        status_combo = QComboBox()
+        status_combo.addItems(["open", "pending", "closed"])
+        layout.addWidget(status_combo)
+        send = QPushButton(self.tr("Ответить", "Reply"))
+        send.setProperty("accent", True)
+        layout.addWidget(send)
+        send.clicked.connect(dialog.accept)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        try:
+            r = requests.patch(
+                f"{self.browser.API_URL}/api/support/tickets/{ticket.get('id')}",
+                json={"message": reply.toPlainText().strip(), "status": status_combo.currentText()},
+                headers={"Authorization": f"Bearer {self.browser.token}"}, timeout=15)
+            if r.status_code >= 400:
+                raise RuntimeError(r.text)
+            self.load_queue(); self.load_tickets()
+        except Exception as exc:
+            self.status.setText(str(exc))
 
 
 class DiagnosticsPage(QWidget):
@@ -951,13 +1809,15 @@ class SettingsPage(QWidget):
         card = QFrame()
         card.setObjectName("settingCard")
         row = QHBoxLayout(card)
-        row.setContentsMargins(18, 14, 14, 14)
+        row.setContentsMargins(18, 12, 14, 12)
+        card.setMinimumHeight(76)
         texts = QVBoxLayout()
         name = QLabel(title)
         name.setObjectName("settingTitle")
         desc = QLabel(description)
         desc.setObjectName("settingDescription")
         desc.setWordWrap(True)
+        desc.setMinimumHeight(34)
         texts.addWidget(name)
         texts.addWidget(desc)
         row.addLayout(texts, 1)
@@ -993,7 +1853,11 @@ class SettingsPage(QWidget):
         idx = engine.findData(self.browser.config.get("search_engine", "google"))
         engine.setCurrentIndex(idx if idx >= 0 else 0)
         engine.currentIndexChanged.connect(self.save_engine)
-        self.add_card("Поисковая система", "Определяет, куда Orbit отправляет запросы из адресной строки и главного поиска.", engine)
+        self.add_card("Поисковая система", "Google выбран по умолчанию. Здесь можно сменить поисковик для адресной строки и главного поиска.", engine)
+        vpn = QPushButton("Включено" if self.browser.config.get("require_vpn", False) else "Выключено")
+        vpn.clicked.connect(lambda: self.toggle_bool("require_vpn", vpn))
+        self.add_card("Требовать VPN", "Запрещает Orbit открывать внешние сайты, если в Windows не найден распространённый VPN-адаптер. Выключено по умолчанию.", vpn)
+
         self.engine_control = engine
 
         auto = QPushButton("Включено" if self.browser.config.get("auto_update", True) else "Выключено")
@@ -1034,3 +1898,18 @@ class SettingsPage(QWidget):
         self.title.setText("Настройки" if self.browser.config["language"] == "ru" else "Settings")
         self.subtitle.setText("Все важные параметры Orbit собраны здесь. Справа показано, что именно изменит каждая настройка." if self.browser.config["language"] == "ru" else "All important Orbit settings are here. Each option explains what it changes.")
 
+
+
+# extension method injected for SettingsPage
+def _settings_toggle_nav_hidden(self, key, button):
+    hidden = set(self.browser.config.get("hidden_nav", []))
+    if key in hidden:
+        hidden.remove(key); button.setText("Показывать")
+    else:
+        hidden.add(key); button.setText("Скрыть")
+    self.browser.config["hidden_nav"] = sorted(hidden)
+    from orbit_storage import save_config
+    save_config(self.browser.config)
+    self.browser.apply_language()
+
+SettingsPage.toggle_nav_hidden = _settings_toggle_nav_hidden

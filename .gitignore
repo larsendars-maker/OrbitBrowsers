@@ -1,0 +1,71 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+
+# Build outputs
+build/
+dist/
+gotovo/
+installer/
+
+# Python packaging / local artifacts
+*.egg-info/
+*.spec.bak
+
+# Windows binaries / installers
+*.exe
+*.msi
+*.apk
+*.aab
+
+# Archives / logs
+*.zip
+*.7z
+*.rar
+*.log
+
+# IDEs
+.vscode/
+.idea/
+*.iml
+
+# Local config / secrets
+.env
+.env.*
+!.env.example
+
+# OS files
+.DS_Store
+Thumbs.db
+Desktop.ini
+# Secrets / credentials (never commit)
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+credentials.json
+secrets.json
+service-account*.json
+**/secrets/**
+**/credentials/**
+.env.local
+.env.production
+.env.development
+*.token
+*.secret
+
+# Generated releases / local archives
+release/
+releases/
+artifacts/
+*.dmg
+*.deb
+*.AppImage

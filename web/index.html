@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Orbit Browser — скачать</title>
+<meta name="description" content="Скачать Orbit Browser для Windows. Официальный сайт Orbit Browser.">
+<meta name="robots" content="index,follow">
+<style>
+:root{--bg:#070511;--bg2:#0d0819;--panel:rgba(20,13,34,.78);--line:#30234b;--text:#f7f2ff;--muted:#a7a0b8;--accent:#a978ff;--accent2:#c8a7ff;--ok:#7de0b2;--shadow:0 30px 80px rgba(0,0,0,.35)}
+*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:radial-gradient(circle at 50% -10%,rgba(169,120,255,.16),transparent 34%),linear-gradient(180deg,var(--bg),#05030a 80%);color:var(--text);font:15px Segoe UI,Arial,sans-serif;min-height:100vh}
+a{color:inherit;text-decoration:none}.wrap{max-width:1180px;margin:0 auto;padding:28px 22px 70px}.top{display:flex;justify-content:space-between;align-items:center;margin-bottom:70px}.brand{font-size:20px;font-weight:900;letter-spacing:.24em}.brand span{color:var(--accent2)}.nav{display:flex;gap:10px}.nav a{padding:9px 13px;border:1px solid transparent;border-radius:11px;color:#c8c1d4}.nav a:hover{background:#110b1d;border-color:var(--line)}
+.hero{text-align:center;padding:50px 0 65px}.orb{font-size:88px;font-weight:800;letter-spacing:.11em;line-height:1;background:linear-gradient(135deg,#efe4ff,#9d70ff 70%);-webkit-background-clip:text;background-clip:text;color:transparent}.hero h1{font-size:34px;margin:18px 0 10px}.hero p{max-width:650px;margin:0 auto;color:var(--muted);font-size:16px;line-height:1.7}.actions{display:flex;justify-content:center;gap:12px;flex-wrap:wrap;margin-top:28px}.btn{border:1px solid #4a3470;border-radius:13px;padding:12px 20px;background:#151022;color:#fff;font-weight:800;cursor:pointer;transition:.18s}.btn:hover{transform:translateY(-1px);border-color:#8060b4}.btn.primary{background:linear-gradient(135deg,#b38aff,#8455ed);border-color:#a578ff;color:#100919}.btn.disabled{opacity:.45;cursor:not-allowed;transform:none}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:8px 0 26px}.stat{background:var(--panel);border:1px solid var(--line);border-radius:17px;padding:18px;box-shadow:var(--shadow)}.stat b{display:block;font-size:28px}.stat span{display:block;color:var(--muted);margin-top:6px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:21px;padding:24px;box-shadow:var(--shadow);backdrop-filter:blur(14px);margin-top:16px}.card h2{margin:0 0 8px;font-size:23px}.muted{color:var(--muted);line-height:1.6}.download{display:flex;align-items:center;justify-content:space-between;gap:20px}.download-meta{display:flex;align-items:center;gap:14px}.ico{width:52px;height:52px;border-radius:15px;display:grid;place-items:center;background:#120b1e;border:1px solid #3a2860}.ico img{width:30px;height:30px}.download h3{margin:0 0 4px;font-size:20px}.pill{display:inline-flex;padding:5px 9px;border-radius:999px;background:#1a1230;color:#cdb4ff;font-size:12px;font-weight:700}
+.footer{padding-top:40px;color:#766c86;font-size:12px;text-align:center}.loading{color:var(--muted)}
+@media(max-width:800px){.stats{grid-template-columns:repeat(2,1fr)}.download{align-items:flex-start;flex-direction:column}.orb{font-size:64px}.top{margin-bottom:35px}.nav{display:none}}
+
+.orbit-mobile-toggle{display:none;position:fixed;right:16px;top:16px;z-index:50;width:44px;height:44px;border:1px solid var(--line);border-radius:13px;background:rgba(16,10,27,.92);color:#fff;font-size:20px;cursor:pointer}.orbit-panel-hidden .nav{display:none!important}@media(max-width:800px){.orbit-mobile-toggle{display:grid;place-items:center}.wrap{padding-top:76px}}
+</style>
+</head>
+<body>
+<button id="orbitMobileToggle" class="orbit-mobile-toggle" aria-label="Скрыть панель">☰</button><div class="wrap">
+<header class="top"><div class="brand">◉ <span>ORBIT</span></div><nav class="nav"><a href="#download">Скачать</a><a href="#stats">Статистика</a><a href="/admin">Админка</a></nav></header>
+<section class="hero"><div class="orb">Orbit</div><h1>Browser the future.</h1><p>Официальная страница Orbit Browser. Скачивайте актуальную версию для Windows и следите за статистикой проекта.</p><div class="actions"><a id="heroDownload" class="btn primary" href="/download/orbit-browser">Скачать Orbit Browser</a><a class="btn" href="#download">Подробнее</a></div></section>
+<section id="stats" class="stats"><div class="stat"><b id="views">—</b><span>Просмотров</span></div><div class="stat"><b id="uniqueViews">—</b><span>Уникальных посетителей</span></div><div class="stat"><b id="downloads">—</b><span>Скачиваний</span></div><div class="stat"><b id="uniqueDownloads">—</b><span>Уникальных скачавших</span></div></section>
+<section id="download" class="card"><div class="download"><div class="download-meta"><div class="ico"><img src="/assets/orbit_icon.png" alt="Orbit"></div><div><h3 id="fileName">Orbit Browser</h3><div class="muted"><span id="version">Версия —</span> <span class="pill">Windows</span></div></div></div><a id="downloadBtn" class="btn primary" href="/download/orbit-browser">Скачать</a></div></section>
+<section class="card"><h2>Как считается статистика</h2><p class="muted">Общие просмотры и скачивания считаются каждый раз. Уникальные посетители и уникальные скачавшие считаются по анонимному идентификатору браузера. Мы не показываем на сайте IP-адреса, email или другие персональные данные.</p></section>
+<footer class="footer">Orbit Browser · официальный сайт</footer>
+</div>
+<script>
+async function load(){
+  try{
+    const [s,f]=await Promise.all([fetch('/api/site/stats'),fetch('/api/downloads')]);
+    const stats=await s.json(); const files=await f.json();
+    document.getElementById('views').textContent=(stats.views||0).toLocaleString('ru-RU');
+    document.getElementById('uniqueViews').textContent=(stats.unique_views||0).toLocaleString('ru-RU');
+    document.getElementById('downloads').textContent=(stats.downloads||0).toLocaleString('ru-RU');
+    document.getElementById('uniqueDownloads').textContent=(stats.unique_downloads||0).toLocaleString('ru-RU');
+    const file=files.files&&files.files[0];
+    if(file){document.getElementById('fileName').textContent=file.file_name||file.name;document.getElementById('version').textContent='Версия '+file.version;}
+    else{
+      for(const id of ['downloadBtn','heroDownload']){const e=document.getElementById(id);e.classList.add('disabled');e.removeAttribute('href');e.textContent='Файл пока не подключён';}
+    }
+  }catch(e){console.warn(e)}
+}
+document.getElementById('orbitMobileToggle').addEventListener('click',()=>{document.documentElement.classList.toggle('orbit-panel-hidden');});
+load();
+</script>
+</body>
+</html>
