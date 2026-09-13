@@ -1,268 +1,124 @@
 import json
 import os
 import sys
+from urllib.parse import quote
 
 import requests
 
-from PySide6.QtCore import Qt, QUrl
-from PySide6.QtWidgets import (
-    QApplication,
-    QComboBox,
-    QDialog,
-    QFormLayout,
-    QGridLayout,
-    QHBoxLayout,
-    QLabel,
-    QLineEdit,
-    QMainWindow,
-    QMessageBox,
-    QPushButton,
-    QVBoxLayout,
-    QWidget,
-    QFrame,
-)
-from PySide6.QtWebEngineCore import QWebEngineSettings
+from PySide6.QtCore import QUrl
+from PySide6.QtWebEngineCore import QWebEngineProfile, QWebEngineSettings
 from PySide6.QtWebEngineWidgets import QWebEngineView
+from PySide6.QtWidgets import (
+QApplication,
+QComboBox,
+QLineEdit,
+QMainWindow,
+QMessageBox,
+QPushButton,
+QTabWidget,
+QVBoxLayout,
+QHBoxLayout,
+QWidget,
+QLabel,
+QFrame,
+)
 
+from orbit_pages import (
+HomePage,
+HistoryPage,
+BookmarksPage,
+NotesPage,
+DownloadsPage,
+SettingsPage,
+)
 
-# ============================================================
-# ORBIT
-# ============================================================
+from orbit_storage import (
+load_config,
+save_config,
+)
+
+from orbit_ui import (
+THEMES,
+stylesheet,
+)
 
 APP_NAME = "Orbit Browser"
+APP_VERSION = "0.5.0"
+
 API_URL = "https://orbit-api-9uqa.onrender.com"
 
-
-# ============================================================
-# DIRECTORIES
-# ============================================================
-
-BASE_DIR = os.path.join(
-    os.environ.get(
-        "LOCALAPPDATA",
-        os.path.expanduser("~"),
-    ),
-    "OrbitBrowser",
-)
-
-DATA_DIR = os.path.join(BASE_DIR, "data")
-CONFIG_DIR = os.path.join(BASE_DIR, "config")
-PROFILES_DIR = os.path.join(BASE_DIR, "profiles")
-THEMES_DIR = os.path.join(BASE_DIR, "themes")
-NOTES_DIR = os.path.join(BASE_DIR, "notes")
-WORKSPACES_DIR = os.path.join(BASE_DIR, "workspaces")
-DOWNLOADS_DIR = os.path.join(BASE_DIR, "downloads")
-CACHE_DIR = os.path.join(BASE_DIR, "cache")
-LOGS_DIR = os.path.join(BASE_DIR, "logs")
-BACKUPS_DIR = os.path.join(BASE_DIR, "backups")
-
-CONFIG_FILE = os.path.join(
-    CONFIG_DIR,
-    "config.json",
-)
-
 SESSION_FILE = os.path.join(
-    DATA_DIR,
-    "session.json",
+os.environ.get(
+"LOCALAPPDATA",
+os.path.expanduser("~"),
+),
+"OrbitBrowser",
+"data",
+"session.json",
 )
 
+def check_api():
+try:
+response = requests.get(
+f"{API_URL}/health",
+timeout=10,
+)
 
-# ============================================================
-# THEMES
-# ============================================================
+```
+    return response.status_code == 200
 
-THEMES = {
-    "VOID": {
-        "bg": "#080b12",
-        "panel": "#101521",
-        "panel2": "#171f2e",
-        "border": "#2b3548",
-        "text": "#f4f6ff",
-        "muted": "#8b97ab",
-        "accent": "#7657ff",
-        "accent2": "#9a85ff",
-    },
-    "ICE": {
-        "bg": "#071018",
-        "panel": "#0d1b27",
-        "panel2": "#14293b",
-        "border": "#2b4a61",
-        "text": "#effaff",
-        "muted": "#91b1c4",
-        "accent": "#41c7ff",
-        "accent2": "#75dcff",
-    },
-    "EMERALD": {
-        "bg": "#06110d",
-        "panel": "#0c1914",
-        "panel2": "#12251d",
-        "border": "#2a4e3e",
-        "text": "#f0fff7",
-        "muted": "#8daf9f",
-        "accent": "#2ddc8a",
-        "accent2": "#69f0ad",
-    },
-    "PURPLE": {
-        "bg": "#0d0715",
-        "panel": "#180e24",
-        "panel2": "#241434",
-        "border": "#51326c",
-        "text": "#fff6ff",
-        "muted": "#b39abb",
-        "accent": "#c15cff",
-        "accent2": "#de8aff",
-    },
-    "RED": {
-        "bg": "#120809",
-        "panel": "#211011",
-        "panel2": "#321719",
-        "border": "#603033",
-        "text": "#fff5f5",
-        "muted": "#c19b9d",
-        "accent": "#ff5069",
-        "accent2": "#ff7b8d",
-    },
-    "BLUE": {
-        "bg": "#060b15",
-        "panel": "#0d1625",
-        "panel2": "#14213a",
-        "border": "#2a466d",
-        "text": "#f2f7ff",
-        "muted": "#91a6c3",
-        "accent": "#4d8dff",
-        "accent2": "#79aaff",
-    },
-}
+except Exception:
+    return False
+```
 
+def load_session():
+if not os.path.exists(SESSION_FILE):
+return None
 
-# ============================================================
-# ACHIEVEMENTS
-# ============================================================
-
-ACHIEVEMENTS = [
-    {
-        "name": "First Flight",
-        "description": "Первый запуск Orbit",
-        "icon": "🚀",
-        "xp": 100,
-    },
-    {
-        "name": "Explorer",
-        "description": "Исследователь Orbit",
-        "icon": "🌌",
-        "xp": 250,
-    },
-    {
-        "name": "Power User",
-        "description": "Продвинутый пользователь",
-        "icon": "⚡",
-        "xp": 500,
-    },
-    {
-        "name": "Creator",
-        "description": "Создатель контента",
-        "icon": "✦",
-        "xp": 750,
-    },
-    {
-        "name": "Founder",
-        "description": "Создатель Orbit",
-        "icon": "👑",
-        "xp": 1000,
-    },
-]
-
-
-# ============================================================
-# FILESYSTEM
-# ============================================================
-
-def create_directories():
-    for directory in [
-        BASE_DIR,
-        DATA_DIR,
-        CONFIG_DIR,
-        PROFILES_DIR,
-        THEMES_DIR,
-        NOTES_DIR,
-        WORKSPACES_DIR,
-        DOWNLOADS_DIR,
-        CACHE_DIR,
-        LOGS_DIR,
-        BACKUPS_DIR,
-    ]:
-        os.makedirs(
-            directory,
-            exist_ok=True,
-        )
-
-
-# ============================================================
-# CONFIG
-# ============================================================
-
-def save_config(config):
-    create_directories()
-
+```
+try:
     with open(
-        CONFIG_FILE,
-        "w",
+        SESSION_FILE,
+        "r",
         encoding="utf-8",
     ) as file:
-        json.dump(
-            config,
-            file,
-            ensure_ascii=False,
-            indent=4,
-        )
+        saved = json.load(file)
 
+    token = saved.get("token")
 
-def load_config():
-    create_directories()
+    if not token:
+        return None
 
-    config = {}
-
-    if os.path.exists(CONFIG_FILE):
-        try:
-            with open(
-                CONFIG_FILE,
-                "r",
-                encoding="utf-8",
-            ) as file:
-                config = json.load(file)
-
-            if not isinstance(config, dict):
-                config = {}
-
-        except Exception:
-            config = {}
-
-    config.setdefault(
-        "theme",
-        "VOID",
+    response = requests.get(
+        f"{API_URL}/api/auth/session",
+        headers={
+            "Authorization": f"Bearer {token}",
+        },
+        timeout=15,
     )
 
-    config.setdefault(
-        "search_engine",
-        "https://www.google.com/search?q=",
+    if response.status_code != 200:
+        return None
+
+    data = response.json()
+
+    if not data.get("ok"):
+        return None
+
+    user = data.get("user")
+
+    if not user:
+        return None
+
+    session = {
+        "token": token,
+        "user": user,
+    }
+
+    os.makedirs(
+        os.path.dirname(SESSION_FILE),
+        exist_ok=True,
     )
-
-    config["api_url"] = API_URL
-
-    if config["theme"] not in THEMES:
-        config["theme"] = "VOID"
-
-    save_config(config)
-
-    return config
-
-
-# ============================================================
-# SESSION
-# ============================================================
-
-def save_session(token, user):
-    create_directories()
 
     with open(
         SESSION_FILE,
@@ -270,1867 +126,862 @@ def save_session(token, user):
         encoding="utf-8",
     ) as file:
         json.dump(
-            {
-                "token": token,
-                "user": user,
-            },
+            session,
             file,
             ensure_ascii=False,
             indent=4,
         )
 
-
-def clear_session():
-    try:
-        if os.path.exists(SESSION_FILE):
-            os.remove(SESSION_FILE)
-    except Exception:
-        pass
-
-
-def load_saved_session(api_url):
-    if not os.path.exists(SESSION_FILE):
-        return None
-
-    try:
-        with open(
-            SESSION_FILE,
-            "r",
-            encoding="utf-8",
-        ) as file:
-            session = json.load(file)
-
-        token = session.get("token")
-
-        if not token:
-            clear_session()
-            return None
-
-        response = requests.get(
-            f"{api_url}/api/auth/session",
-            headers={
-                "Authorization": f"Bearer {token}",
-            },
-            timeout=15,
-        )
-
-        if response.status_code != 200:
-            clear_session()
-            return None
-
-        data = response.json()
-
-        if not data.get("ok"):
-            clear_session()
-            return None
-
-        user = data.get("user")
-
-        if not user:
-            clear_session()
-            return None
-
-        save_session(
-            token,
-            user,
-        )
-
-        return {
-            "token": token,
-            "user": user,
-        }
-
-    except Exception:
-        clear_session()
-        return None
-
-
-# ============================================================
-# API
-# ============================================================
-
-def post_api(
-    api_url,
-    endpoint,
-    payload,
-    token=None,
-):
-    headers = {}
-
-    if token:
-        headers["Authorization"] = (
-            f"Bearer {token}"
-        )
-
-    return requests.post(
-        f"{api_url.rstrip('/')}{endpoint}",
-        json=payload,
-        headers=headers,
-        timeout=20,
-    )
-
-
-def patch_api(
-    api_url,
-    endpoint,
-    payload,
-    token,
-):
-    return requests.patch(
-        f"{api_url.rstrip('/')}{endpoint}",
-        json=payload,
-        headers={
-            "Authorization": f"Bearer {token}",
-        },
-        timeout=20,
-    )
-
-
-# ============================================================
-# STYLES
-# ============================================================
-
-def theme_styles(theme):
-    t = THEMES[theme]
-
-    return f"""
-    QWidget {{
-        background: {t["bg"]};
-        color: {t["text"]};
-        font-family: "Segoe UI";
-    }}
-
-    QMainWindow {{
-        background: {t["bg"]};
-    }}
-
-    QLineEdit {{
-        background: {t["panel"]};
-        border: 1px solid {t["border"]};
-        border-radius: 14px;
-        padding: 11px 15px;
-        color: {t["text"]};
-        font-size: 14px;
-    }}
-
-    QLineEdit:focus {{
-        border: 1px solid {t["accent"]};
-    }}
-
-    QPushButton {{
-        background: {t["panel"]};
-        border: 1px solid {t["border"]};
-        border-radius: 11px;
-        padding: 9px 13px;
-        color: {t["text"]};
-        font-size: 13px;
-    }}
-
-    QPushButton:hover {{
-        background: {t["panel2"]};
-        border-color: {t["accent"]};
-    }}
-
-    QPushButton[accent="true"] {{
-        background: {t["accent"]};
-        border-color: {t["accent"]};
-        color: white;
-        font-weight: 700;
-    }}
-
-    QPushButton[accent="true"]:hover {{
-        background: {t["accent2"]};
-    }}
-
-    QComboBox {{
-        background: {t["panel"]};
-        border: 1px solid {t["border"]};
-        border-radius: 10px;
-        padding: 8px 12px;
-        color: {t["text"]};
-    }}
-
-    QComboBox QAbstractItemView {{
-        background: {t["panel"]};
-        color: {t["text"]};
-        selection-background-color: {t["accent"]};
-    }}
-
-    QFrame#sidebar {{
-        background: {t["panel"]};
-        border-right: 1px solid {t["border"]};
-    }}
-
-    QFrame#card {{
-        background: {t["panel"]};
-        border: 1px solid {t["border"]};
-        border-radius: 18px;
-    }}
-
-    QFrame#hero {{
-        background: {t["panel"]};
-        border: 1px solid {t["border"]};
-        border-radius: 22px;
-    }}
-
-    QLabel#logo {{
-        font-size: 25px;
-        font-weight: 900;
-        color: {t["accent"]};
-        letter-spacing: 2px;
-    }}
-
-    QLabel#heroTitle {{
-        font-size: 43px;
-        font-weight: 800;
-    }}
-
-    QLabel#subtitle {{
-        color: {t["muted"]};
-        font-size: 15px;
-    }}
-
-    QLabel#section {{
-        font-size: 18px;
-        font-weight: 700;
-    }}
-
-    QLabel#muted {{
-        color: {t["muted"]};
-    }}
-
-    QLabel#badge {{
-        background: {t["accent"]};
-        color: white;
-        border-radius: 8px;
-        padding: 5px 9px;
-        font-weight: 700;
-    }}
-    """
-
-
-# ============================================================
-# AUTH
-# ============================================================
-
-class AuthWindow(QDialog):
-    def __init__(self, api_url):
-        super().__init__()
-
-        self.api_url = api_url
-        self.session = None
-
-        self.setWindowTitle(
-            "Orbit Browser"
-        )
-
-        self.setMinimumSize(
-            470,
-            430,
-        )
-
-        self.setStyleSheet(
-            theme_styles("VOID")
-        )
-
-        self.init_ui()
-
-    def init_ui(self):
-        layout = QVBoxLayout(self)
-
-        layout.setContentsMargins(
-            35,
-            30,
-            35,
-            30,
-        )
-
-        logo = QLabel("ORBIT")
-        logo.setObjectName("logo")
-        logo.setAlignment(
-            Qt.AlignmentFlag.AlignCenter
-        )
-
-        layout.addWidget(logo)
-
-        title = QLabel(
-            "Welcome"
-        )
-
-        title.setAlignment(
-            Qt.AlignmentFlag.AlignCenter
-        )
-
-        title.setStyleSheet(
-            "font-size: 27px; font-weight: 800;"
-        )
-
-        layout.addWidget(title)
-
-        subtitle = QLabel(
-            "Ваш персональный браузер"
-        )
-
-        subtitle.setObjectName(
-            "subtitle"
-        )
-
-        subtitle.setAlignment(
-            Qt.AlignmentFlag.AlignCenter
-        )
-
-        layout.addWidget(subtitle)
-
-        form = QFormLayout()
-
-        form.setSpacing(12)
-
-        self.username = QLineEdit()
-        self.username.setPlaceholderText(
-            "Имя пользователя"
-        )
-
-        self.email = QLineEdit()
-        self.email.setPlaceholderText(
-            "Email"
-        )
-
-        self.password = QLineEdit()
-        self.password.setEchoMode(
-            QLineEdit.EchoMode.Password
-        )
-
-        self.password.setPlaceholderText(
-            "Пароль"
-        )
-
-        form.addRow(
-            "Имя:",
-            self.username,
-        )
-
-        form.addRow(
-            "Email:",
-            self.email,
-        )
-
-        form.addRow(
-            "Пароль:",
-            self.password,
-        )
-
-        layout.addLayout(form)
-
-        buttons = QHBoxLayout()
-
-        register_button = QPushButton(
-            "Создать аккаунт"
-        )
-
-        register_button.setProperty(
-            "accent",
-            True,
-        )
-
-        login_button = QPushButton(
-            "Войти"
-        )
-
-        buttons.addWidget(register_button)
-        buttons.addWidget(login_button)
-
-        layout.addLayout(buttons)
-
-        self.status = QLabel()
-
-        self.status.setAlignment(
-            Qt.AlignmentFlag.AlignCenter
-        )
-
-        self.status.setWordWrap(True)
-
-        layout.addWidget(self.status)
-
-        register_button.clicked.connect(
-            self.register
-        )
-
-        login_button.clicked.connect(
-            self.login
-        )
-
-    def register(self):
-        username = self.username.text().strip()
-        email = self.email.text().strip()
-        password = self.password.text()
-
-        if len(username) < 3:
-            self.status.setText(
-                "Имя должно содержать минимум 3 символа."
-            )
-            return
-
-        if not email:
-            self.status.setText(
-                "Введите email."
-            )
-            return
-
-        if len(password) < 6:
-            self.status.setText(
-                "Пароль должен содержать минимум 6 символов."
-            )
-            return
-
-        self.status.setText(
-            "Создание аккаунта..."
-        )
-
-        try:
-            response = post_api(
-                self.api_url,
-                "/api/auth/register",
-                {
-                    "username": username,
-                    "email": email,
-                    "password": password,
-                },
-            )
-
-            if response.status_code == 200:
-                data = response.json()
-
-                save_session(
-                    data["token"],
-                    data["user"],
-                )
-
-                self.session = {
-                    "token": data["token"],
-                    "user": data["user"],
-                }
-
-                self.accept()
-                return
-
-            self.show_error(
-                response,
-                "Ошибка регистрации",
-            )
-
-        except Exception as error:
-            self.status.setText(
-                f"Ошибка подключения: {error}"
-            )
-
-    def login(self):
-        email = self.email.text().strip()
-        password = self.password.text()
-
-        if not email or not password:
-            self.status.setText(
-                "Введите email и пароль."
-            )
-            return
-
-        self.status.setText(
-            "Вход..."
-        )
-
-        try:
-            response = post_api(
-                self.api_url,
-                "/api/auth/login",
-                {
-                    "email": email,
-                    "password": password,
-                },
-            )
-
-            if response.status_code == 200:
-                data = response.json()
-
-                save_session(
-                    data["token"],
-                    data["user"],
-                )
-
-                self.session = {
-                    "token": data["token"],
-                    "user": data["user"],
-                }
-
-                self.accept()
-                return
-
-            self.show_error(
-                response,
-                "Ошибка входа",
-            )
-
-        except Exception as error:
-            self.status.setText(
-                f"Ошибка подключения: {error}"
-            )
-
-    def show_error(self, response, default):
-        try:
-            data = response.json()
-
-            detail = data.get(
-                "detail",
-                default,
-            )
-
-        except Exception:
-            detail = response.text or default
-
-        self.status.setText(
-            f"{detail} [{response.status_code}]"
-        )
-
-
-# ============================================================
-# PROFILE WINDOW
-# ============================================================
-
-class ProfileDialog(QDialog):
-    def __init__(self, window):
-        super().__init__()
-
-        self.window = window
-        self.user = window.user
-
-        self.setWindowTitle(
-            "Orbit Profile"
-        )
-
-        self.setMinimumSize(
-            620,
-            600,
-        )
-
-        self.setStyleSheet(
-            theme_styles(
-                window.current_theme
-            )
-        )
-
-        self.build_ui()
-
-    def build_ui(self):
-        layout = QVBoxLayout(self)
-
-        header = QHBoxLayout()
-
-        avatar = QLabel("◎")
-
-        avatar.setAlignment(
-            Qt.AlignmentFlag.AlignCenter
-        )
-
-        avatar.setFixedSize(
-            90,
-            90,
-        )
-
-        avatar.setStyleSheet(
-            """
-            font-size: 48px;
-            font-weight: 800;
-            border-radius: 45px;
-            background: #20283a;
-            """
-        )
-
-        header.addWidget(avatar)
-
-        info = QVBoxLayout()
-
-        display_name = self.user.get(
-            "display_name",
-            self.user.get(
-                "username",
-                "User",
-            ),
-        )
-
-        self.name_label = QLabel(
-            display_name
-        )
-
-        self.name_label.setStyleSheet(
-            "font-size: 24px; font-weight: 800;"
-        )
-
-        info.addWidget(
-            self.name_label
-        )
-
-        username = self.user.get(
-            "username",
-            "User",
-        )
-
-        info.addWidget(
-            QLabel(f"@{username}")
-        )
-
-        role = self.user.get(
-            "role",
-            "user",
-        )
-
-        if role == "founder":
-            badge = QLabel(
-                "👑 FOUNDER • CREATOR OF ORBIT"
-            )
-
-            badge.setObjectName(
-                "badge"
-            )
-
-            info.addWidget(
-                badge
-            )
-
-        else:
-            title = self.user.get(
-                "title",
-                "Explorer",
-            )
-
-            info.addWidget(
-                QLabel(title)
-            )
-
-        header.addLayout(info)
-        header.addStretch()
-
-        layout.addLayout(header)
-
-        xp = int(
-            self.user.get(
-                "xp",
-                0,
-            )
-        )
-
-        level = max(
-            1,
-            xp // 500 + 1,
-        )
-
-        xp_in_level = xp % 500
-
-        level_label = QLabel(
-            f"LEVEL {level}    •    {xp} XP"
-        )
-
-        level_label.setStyleSheet(
-            "font-size: 17px; font-weight: 700;"
-        )
-
-        layout.addWidget(
-            level_label
-        )
-
-        progress_text = QLabel(
-            f"{xp_in_level}/500 XP до следующего уровня"
-        )
-
-        progress_text.setObjectName(
-            "muted"
-        )
-
-        layout.addWidget(
-            progress_text
-        )
-
-        bio_label = QLabel(
-            self.user.get(
-                "bio",
-                "",
-            )
-            or "Описание профиля не добавлено."
-        )
-
-        bio_label.setWordWrap(True)
-
-        layout.addWidget(
-            bio_label
-        )
-
-        section = QLabel(
-            "ACHIEVEMENTS"
-        )
-
-        section.setObjectName(
-            "section"
-        )
-
-        layout.addWidget(section)
-
-        achievements = QGridLayout()
-
-        unlocked_count = min(
-            len(ACHIEVEMENTS),
-            max(1, xp // 250),
-        )
-
-        for index, achievement in enumerate(
-            ACHIEVEMENTS
-        ):
-            card = QFrame()
-
-            card.setObjectName(
-                "card"
-            )
-
-            card_layout = QVBoxLayout(
-                card
-            )
-
-            title = QLabel(
-                f'{achievement["icon"]}  {achievement["name"]}'
-            )
-
-            title.setStyleSheet(
-                "font-weight: 700;"
-            )
-
-            desc = QLabel(
-                achievement["description"]
-            )
-
-            desc.setObjectName(
-                "muted"
-            )
-
-            card_layout.addWidget(
-                title
-            )
-
-            card_layout.addWidget(
-                desc
-            )
-
-            if index < unlocked_count:
-                unlocked = QLabel(
-                    "UNLOCKED"
-                )
-
-                unlocked.setObjectName(
-                    "badge"
-                )
-
-                card_layout.addWidget(
-                    unlocked
-                )
-
-            else:
-                locked = QLabel(
-                    "LOCKED"
-                )
-
-                locked.setObjectName(
-                    "muted"
-                )
-
-                card_layout.addWidget(
-                    locked
-                )
-
-            achievements.addWidget(
-                card,
-                index // 2,
-                index % 2,
-            )
-
-        layout.addLayout(
-            achievements
-        )
-
-        edit_button = QPushButton(
-            "Настроить профиль"
-        )
-
-        edit_button.setProperty(
-            "accent",
-            True,
-        )
-
-        edit_button.clicked.connect(
-            self.edit_profile
-        )
-
-        layout.addWidget(
-            edit_button
-        )
-
-    def edit_profile(self):
-        dialog = EditProfileDialog(
-            self.window
-        )
-
-        if (
-            dialog.exec()
-            == QDialog.DialogCode.Accepted
-        ):
-            self.accept()
-
-
-# ============================================================
-# EDIT PROFILE
-# ============================================================
-
-class EditProfileDialog(QDialog):
-    def __init__(self, window):
-        super().__init__()
-
-        self.window = window
-        self.setWindowTitle(
-            "Edit Orbit Profile"
-        )
-
-        self.setMinimumSize(
-            480,
-            410,
-        )
-
-        self.setStyleSheet(
-            theme_styles(
-                window.current_theme
-            )
-        )
-
-        layout = QVBoxLayout(self)
-
-        title = QLabel(
-            "Настройка профиля"
-        )
-
-        title.setStyleSheet(
-            "font-size: 23px; font-weight: 800;"
-        )
-
-        layout.addWidget(title)
-
-        form = QFormLayout()
-
-        self.display_name = QLineEdit(
-            self.window.user.get(
-                "display_name",
-                self.window.user.get(
-                    "username",
-                    "",
-                ),
-            )
-        )
-
-        self.bio = QLineEdit(
-            self.window.user.get(
-                "bio",
-                "",
-            )
-        )
-
-        self.title_edit = QLineEdit(
-            self.window.user.get(
-                "title",
-                "Explorer",
-            )
-        )
-
-        self.theme = QComboBox()
-
-        self.theme.addItems(
-            THEMES.keys()
-        )
-
-        self.theme.setCurrentText(
-            self.window.user.get(
-                "profile_theme",
-                self.window.current_theme,
-            )
-        )
-
-        form.addRow(
-            "Имя:",
-            self.display_name,
-        )
-
-        form.addRow(
-            "Описание:",
-            self.bio,
-        )
-
-        form.addRow(
-            "Титул:",
-            self.title_edit,
-        )
-
-        form.addRow(
-            "Тема профиля:",
-            self.theme,
-        )
-
-        layout.addLayout(form)
-
-        save_button = QPushButton(
-            "Сохранить"
-        )
-
-        save_button.setProperty(
-            "accent",
-            True,
-        )
-
-        layout.addWidget(
-            save_button
-        )
-
-        save_button.clicked.connect(
-            self.save
-        )
-
-    def save(self):
-        payload = {
-            "display_name": (
-                self.display_name.text().strip()
-            ),
-            "bio": (
-                self.bio.text().strip()
-            ),
-            "title": (
-                self.title_edit.text().strip()
-            ),
-            "profile_theme": (
-                self.theme.currentText()
-            ),
-        }
-
-        try:
-            response = patch_api(
-                self.window.api_url,
-                "/api/profile",
-                payload,
-                self.window.token,
-            )
-
-            if response.status_code != 200:
-                QMessageBox.warning(
-                    self,
-                    "Orbit",
-                    response.text,
-                )
-                return
-
-            data = response.json()
-
-            if not data.get("ok"):
-                return
-
-            self.window.user = data["user"]
-
-            save_session(
-                self.window.token,
-                self.window.user,
-            )
-
-            self.accept()
-
-        except Exception as error:
-            QMessageBox.warning(
-                self,
-                "Orbit",
-                f"Ошибка: {error}",
-            )
-
-
-# ============================================================
-# HOME
-# ============================================================
-
-class HomePage(QWidget):
-    def __init__(self, window):
-        super().__init__()
-
-        self.window = window
-
-        layout = QVBoxLayout(self)
-
-        layout.setContentsMargins(
-            40,
-            35,
-            40,
-            35,
-        )
-
-        layout.setSpacing(20)
-
-        top = QHBoxLayout()
-
-        logo = QLabel(
-            "ORBIT"
-        )
-
-        logo.setObjectName(
-            "logo"
-        )
-
-        top.addWidget(
-            logo
-        )
-
-        top.addStretch()
-
-        welcome_user = self.window.user.get(
-            "display_name",
-            self.window.user.get(
-                "username",
-                "User",
-            ),
-        )
-
-        top_user = QLabel(
-            f"● {welcome_user}"
-        )
-
-        top_user.setStyleSheet(
-            "font-size: 14px; font-weight: 700;"
-        )
-
-        top.addWidget(
-            top_user
-        )
-
-        layout.addLayout(top)
-
-        hero = QFrame()
-
-        hero.setObjectName(
-            "hero"
-        )
-
-        hero_layout = QVBoxLayout(
-            hero
-        )
-
-        hero_layout.setContentsMargins(
-            35,
-            30,
-            35,
-            30,
-        )
-
-        welcome = QLabel(
-            "Welcome"
-        )
-
-        welcome.setObjectName(
-            "heroTitle"
-        )
-
-        welcome.setAlignment(
-            Qt.AlignmentFlag.AlignCenter
-        )
-
-        hero_layout.addWidget(
-            welcome
-        )
-
-        subtitle = QLabel(
-            "Добро пожаловать в Orbit Browser"
-        )
-
-        subtitle.setObjectName(
-            "subtitle"
-        )
-
-        subtitle.setAlignment(
-            Qt.AlignmentFlag.AlignCenter
-        )
-
-        hero_layout.addWidget(
-            subtitle
-        )
-
-        hero_layout.addSpacing(
-            15
-        )
-
-        self.search = QLineEdit()
-
-        self.search.setPlaceholderText(
-            "Поиск в интернете или введите адрес сайта..."
-        )
-
-        self.search.setMinimumHeight(
-            55
-        )
-
-        hero_layout.addWidget(
-            self.search
-        )
-
-        layout.addWidget(
-            hero
-        )
-
-        sites_title = QLabel(
-            "Быстрый доступ"
-        )
-
-        sites_title.setObjectName(
-            "section"
-        )
-
-        layout.addWidget(
-            sites_title
-        )
-
-        sites = QGridLayout()
-
-        quick_sites = [
-            ("Google", "https://google.com"),
-            ("YouTube", "https://youtube.com"),
-            ("GitHub", "https://github.com"),
-            ("Discord", "https://discord.com"),
-            ("Steam", "https://store.steampowered.com"),
-            ("Gmail", "https://mail.google.com"),
-        ]
-
-        for index, (name, url) in enumerate(
-            quick_sites
-        ):
-            button = QPushButton(
-                name
-            )
-
-            button.setMinimumHeight(
-                55
-            )
-
-            button.clicked.connect(
-                lambda checked=False, u=url:
-                self.window.open_url(u)
-            )
-
-            sites.addWidget(
-                button,
-                index // 3,
-                index % 3,
-            )
-
-        layout.addLayout(
-            sites
-        )
-
-        actions_title = QLabel(
-            "Orbit"
-        )
-
-        actions_title.setObjectName(
-            "section"
-        )
-
-        layout.addWidget(
-            actions_title
-        )
-
-        actions = QHBoxLayout()
-
-        for text, callback in [
-            ("✦ Studio", self.window.open_studio),
-            ("◉ VPN", self.window.open_vpn),
-            ("▦ Workspaces", self.window.open_workspaces),
-            ("◆ Notes", self.window.open_notes),
-            ("● Profile", self.window.open_profile),
-        ]:
-            button = QPushButton(text)
-
-            button.clicked.connect(
-                callback
-            )
-
-            actions.addWidget(
-                button
-            )
-
-        layout.addLayout(
-            actions
-        )
-
-        layout.addStretch()
-
-        self.search.returnPressed.connect(
-            self.search_web
-        )
-
-    def search_web(self):
-        text = (
-            self.search.text().strip()
-        )
-
-        if not text:
-            return
-
-        if text.startswith(
-            "http://"
-        ) or text.startswith(
-            "https://"
-        ):
-            url = text
-
-        elif "." in text and " " not in text:
-            url = f"https://{text}"
-
-        else:
-            url = (
-                "https://www.google.com/search?q="
-                + requests.utils.quote(text)
-            )
-
-        self.window.open_url(
-            url
-        )
-
-
-# ============================================================
-# BROWSER
-# ============================================================
+    return session
+
+except Exception:
+    return None
+```
 
 class BrowserView(QWebEngineView):
-    def __init__(self):
-        super().__init__()
 
-        settings = self.settings()
+```
+def __init__(
+    self,
+    profile,
+    parent=None,
+):
+    super().__init__(parent)
 
-        settings.setAttribute(
-            QWebEngineSettings.WebAttribute.JavascriptEnabled,
-            True,
+    page = profile.createStandardPage()
+
+    self.setPage(page)
+
+    settings = self.settings()
+
+    settings.setAttribute(
+        QWebEngineSettings.WebAttribute.JavascriptEnabled,
+        True,
+    )
+
+    settings.setAttribute(
+        QWebEngineSettings.WebAttribute.LocalStorageEnabled,
+        True,
+    )
+
+    settings.setAttribute(
+        QWebEngineSettings.WebAttribute.FullScreenSupportEnabled,
+        True,
+    )
+```
+
+class OrbitBrowser(QMainWindow):
+
+```
+def __init__(
+    self,
+    session,
+    config,
+):
+    super().__init__()
+
+    self.token = session["token"]
+    self.user = session["user"]
+
+    self.config = config
+
+    self.current_theme = config.get(
+        "theme",
+        "VOID",
+    )
+
+    self.web_profile = (
+        QWebEngineProfile.defaultProfile()
+    )
+
+    self.web_profile.setPersistentCookiesPolicy(
+        QWebEngineProfile.PersistentCookiesPolicy.ForcePersistentCookies
+    )
+
+    self.setWindowTitle(
+        "Orbit Browser"
+    )
+
+    self.resize(
+        1450,
+        900,
+    )
+
+    self.build_ui()
+    self.apply_theme()
+    self.open_home()
+
+# ========================================================
+# UI
+# ========================================================
+
+def build_ui(self):
+
+    central = QWidget()
+
+    self.setCentralWidget(
+        central
+    )
+
+    root = QVBoxLayout(
+        central
+    )
+
+    root.setContentsMargins(
+        8,
+        8,
+        8,
+        8,
+    )
+
+    root.setSpacing(
+        7
+    )
+
+    toolbar_frame = QFrame()
+
+    toolbar_frame.setObjectName(
+        "toolbar"
+    )
+
+    toolbar = QHBoxLayout(
+        toolbar_frame
+    )
+
+    toolbar.setContentsMargins(
+        8,
+        8,
+        8,
+        8,
+    )
+
+    back = QPushButton(
+        "←"
+    )
+
+    forward = QPushButton(
+        "→"
+    )
+
+    reload_button = QPushButton(
+        "⟳"
+    )
+
+    home = QPushButton(
+        "⌂"
+    )
+
+    for button in [
+        back,
+        forward,
+        reload_button,
+        home,
+    ]:
+        button.setFixedWidth(
+            40
         )
 
-        settings.setAttribute(
-            QWebEngineSettings.WebAttribute.LocalStorageEnabled,
-            True,
-        )
+    back.clicked.connect(
+        self.go_back
+    )
 
-        settings.setAttribute(
-            QWebEngineSettings.WebAttribute.FullScreenSupportEnabled,
-            True,
-        )
+    forward.clicked.connect(
+        self.go_forward
+    )
 
+    reload_button.clicked.connect(
+        self.reload_page
+    )
 
-# ============================================================
-# MAIN WINDOW
-# ============================================================
+    home.clicked.connect(
+        self.open_home
+    )
 
-class MainWindow(QMainWindow):
-    def __init__(
-        self,
-        api_url,
-        session,
-        config,
-    ):
-        super().__init__()
+    self.address = QLineEdit()
 
-        self.api_url = api_url
-        self.session = session
-        self.token = session["token"]
-        self.user = session["user"]
-        self.config = config
+    self.address.setPlaceholderText(
+        "Поиск или адрес..."
+    )
 
-        self.current_theme = config.get(
-            "theme",
-            "VOID",
-        )
+    self.address.returnPressed.connect(
+        self.navigate
+    )
 
-        self.browser = BrowserView()
-        self.home_page = HomePage(
-            self
-        )
+    new_tab = QPushButton(
+        "+"
+    )
 
-        self.setWindowTitle(
-            "Orbit Browser"
-        )
+    new_tab.setFixedWidth(
+        40
+    )
 
-        self.resize(
-            1500,
-            900,
-        )
+    new_tab.clicked.connect(
+        self.new_browser_tab
+    )
 
-        self.build_ui()
-        self.apply_theme()
-
-    def build_ui(self):
-        central = QWidget()
-
-        self.setCentralWidget(
-            central
-        )
-
-        root = QHBoxLayout(
-            central
-        )
-
-        root.setContentsMargins(
-            0,
-            0,
-            0,
-            0,
-        )
-
-        root.setSpacing(
-            0
-        )
-
-        sidebar = QFrame()
-
-        sidebar.setObjectName(
-            "sidebar"
-        )
-
-        sidebar.setFixedWidth(
-            220
-        )
-
-        sidebar_layout = QVBoxLayout(
-            sidebar
-        )
-
-        sidebar_layout.setContentsMargins(
-            14,
-            18,
-            14,
-            18,
-        )
-
-        logo = QLabel(
-            "ORBIT"
-        )
-
-        logo.setObjectName(
-            "logo"
-        )
-
-        sidebar_layout.addWidget(
-            logo
-        )
-
-        profile_name = self.user.get(
+    profile_button = QPushButton(
+        self.user.get(
             "display_name",
             self.user.get(
                 "username",
-                "User",
+                "Profile",
             ),
         )
+    )
 
-        user_button = QPushButton(
-            f"●  {profile_name}"
-        )
+    profile_button.clicked.connect(
+        self.open_profile
+    )
 
-        user_button.clicked.connect(
-            self.open_profile
-        )
+    self.theme_combo = QComboBox()
 
-        sidebar_layout.addWidget(
-            user_button
-        )
+    self.theme_combo.addItems(
+        THEMES.keys()
+    )
 
-        separator = QFrame()
+    self.theme_combo.setCurrentText(
+        self.current_theme
+    )
 
-        separator.setFrameShape(
-            QFrame.Shape.HLine
-        )
+    self.theme_combo.currentTextChanged.connect(
+        self.change_theme
+    )
 
-        sidebar_layout.addWidget(
-            separator
-        )
+    menu = QPushButton(
+        "⋮"
+    )
 
-        menu = [
-            ("⌂  Главная", self.show_home),
-            ("＋  Новая вкладка", self.new_tab),
-            ("✦  Orbit Studio", self.open_studio),
-            ("◉  Orbit VPN", self.open_vpn),
-            ("▦  Workspaces", self.open_workspaces),
-            ("◆  Notes", self.open_notes),
-            ("●  Профиль", self.open_profile),
-        ]
+    menu.setFixedWidth(
+        40
+    )
 
-        for text, callback in menu:
-            button = QPushButton(
-                text
-            )
+    menu.clicked.connect(
+        self.open_menu
+    )
 
-            button.clicked.connect(
-                callback
-            )
+    toolbar.addWidget(
+        back
+    )
 
-            sidebar_layout.addWidget(
-                button
-            )
+    toolbar.addWidget(
+        forward
+    )
 
-        sidebar_layout.addStretch()
+    toolbar.addWidget(
+        reload_button
+    )
 
-        theme_label = QLabel(
-            "Тема интерфейса"
-        )
+    toolbar.addWidget(
+        home
+    )
 
-        theme_label.setObjectName(
-            "muted"
-        )
+    toolbar.addWidget(
+        self.address,
+        1
+    )
 
-        sidebar_layout.addWidget(
-            theme_label
-        )
+    toolbar.addWidget(
+        new_tab
+    )
 
-        self.theme_combo = QComboBox()
+    toolbar.addWidget(
+        profile_button
+    )
 
-        self.theme_combo.addItems(
-            THEMES.keys()
-        )
+    toolbar.addWidget(
+        self.theme_combo
+    )
 
-        self.theme_combo.setCurrentText(
+    toolbar.addWidget(
+        menu
+    )
+
+    root.addWidget(
+        toolbar_frame
+    )
+
+    self.tabs = QTabWidget()
+
+    self.tabs.setTabsClosable(
+        True
+    )
+
+    self.tabs.tabCloseRequested.connect(
+        self.close_tab
+    )
+
+    self.tabs.currentChanged.connect(
+        self.sync_address
+    )
+
+    root.addWidget(
+        self.tabs,
+        1
+    )
+
+# ========================================================
+# THEME
+# ========================================================
+
+def apply_theme(self):
+
+    QApplication.instance().setStyleSheet(
+        stylesheet(
             self.current_theme
         )
+    )
 
-        self.theme_combo.currentTextChanged.connect(
-            self.change_theme
+def change_theme(
+    self,
+    theme,
+):
+
+    if theme not in THEMES:
+        return
+
+    self.current_theme = theme
+
+    self.config["theme"] = theme
+
+    save_config(
+        self.config
+    )
+
+    self.apply_theme()
+
+# ========================================================
+# TABS
+# ========================================================
+
+def new_browser_tab(
+    self,
+    url=None,
+):
+
+    browser = BrowserView(
+        self.web_profile
+    )
+
+    browser.urlChanged.connect(
+        lambda value, b=browser:
+        self.browser_url_changed(
+            b,
+            value,
         )
+    )
 
-        sidebar_layout.addWidget(
-            self.theme_combo
+    browser.titleChanged.connect(
+        lambda title, b=browser:
+        self.browser_title_changed(
+            b,
+            title,
         )
+    )
 
-        logout = QPushButton(
-            "↪  Выйти"
-        )
-
-        logout.clicked.connect(
-            self.logout
-        )
-
-        sidebar_layout.addWidget(
-            logout
-        )
-
-        root.addWidget(
-            sidebar
-        )
-
-        content = QVBoxLayout()
-
-        content.setContentsMargins(
-            10,
-            10,
-            10,
-            10,
-        )
-
-        toolbar = QHBoxLayout()
-
-        back = QPushButton(
-            "←"
-        )
-
-        back.setFixedWidth(
-            42
-        )
-
-        forward = QPushButton(
-            "→"
-        )
-
-        forward.setFixedWidth(
-            42
-        )
-
-        refresh = QPushButton(
-            "⟳"
-        )
-
-        refresh.setFixedWidth(
-            42
-        )
-
-        home = QPushButton(
-            "⌂"
-        )
-
-        home.setFixedWidth(
-            42
-        )
-
-        self.address = QLineEdit()
-
-        self.address.setPlaceholderText(
-            "Поиск или адрес..."
-        )
-
-        toolbar.addWidget(
-            back
-        )
-
-        toolbar.addWidget(
-            forward
-        )
-
-        toolbar.addWidget(
-            refresh
-        )
-
-        toolbar.addWidget(
-            home
-        )
-
-        toolbar.addWidget(
-            self.address
-        )
-
-        content.addLayout(
-            toolbar
-        )
-
-        self.content_layout = content
-
-        content.addWidget(
-            self.home_page
-        )
-
-        root.addLayout(
-            content
-        )
-
-        back.clicked.connect(
-            self.browser.back
-        )
-
-        forward.clicked.connect(
-            self.browser.forward
-        )
-
-        refresh.clicked.connect(
-            self.browser.reload
-        )
-
-        home.clicked.connect(
-            self.show_home
-        )
-
-        self.address.returnPressed.connect(
-            self.navigate
-        )
-
-        self.browser.urlChanged.connect(
-            self.url_changed
-        )
-
-    def apply_theme(self):
-        QApplication.instance().setStyleSheet(
-            theme_styles(
-                self.current_theme
-            )
-        )
-
-    def change_theme(self, theme):
-        if theme not in THEMES:
-            return
-
-        self.current_theme = theme
-
-        self.config["theme"] = theme
-
-        save_config(
-            self.config
-        )
-
-        self.apply_theme()
-
-    def clear_content(self):
-        while self.content_layout.count():
-            item = self.content_layout.takeAt(0)
-
-            widget = item.widget()
-
-            if widget:
-                widget.setParent(None)
-
-    def show_home(self):
-        self.clear_content()
-
-        self.content_layout.addLayout(
-            self.toolbar_layout()
-        )
-
-        self.content_layout.addWidget(
-            self.home_page
-        )
-
-        self.address.clear()
-
-    def toolbar_layout(self):
-        toolbar = QHBoxLayout()
-
-        return toolbar
-
-    def new_tab(self):
-        self.show_home()
-
-    def open_url(self, url):
-        self.clear_content()
-
-        toolbar = QHBoxLayout()
-
-        back = QPushButton("←")
-        back.setFixedWidth(42)
-
-        forward = QPushButton("→")
-        forward.setFixedWidth(42)
-
-        refresh = QPushButton("⟳")
-        refresh.setFixedWidth(42)
-
-        home = QPushButton("⌂")
-        home.setFixedWidth(42)
-
-        back.clicked.connect(
-            self.browser.back
-        )
-
-        forward.clicked.connect(
-            self.browser.forward
-        )
-
-        refresh.clicked.connect(
-            self.browser.reload
-        )
-
-        home.clicked.connect(
-            self.show_home
-        )
-
-        toolbar.addWidget(
-            back
-        )
-
-        toolbar.addWidget(
-            forward
-        )
-
-        toolbar.addWidget(
-            refresh
-        )
-
-        toolbar.addWidget(
-            home
-        )
-
-        toolbar.addWidget(
-            self.address
-        )
-
-        self.content_layout.addLayout(
-            toolbar
-        )
-
-        self.content_layout.addWidget(
-            self.browser
-        )
-
-        self.browser.setUrl(
+    if url:
+        browser.setUrl(
             QUrl(url)
         )
-
-    def navigate(self):
-        text = self.address.text().strip()
-
-        if not text:
-            return
-
-        if text.startswith(
-            "http://"
-        ) or text.startswith(
-            "https://"
-        ):
-            url = text
-
-        elif "." in text and " " not in text:
-            url = f"https://{text}"
-
-        else:
-            url = (
-                "https://www.google.com/search?q="
-                + requests.utils.quote(text)
-            )
-
-        self.open_url(
-            url
+    else:
+        browser.setUrl(
+            QUrl("about:blank")
         )
 
-    def url_changed(self, url):
+    index = self.tabs.addTab(
+        browser,
+        "Новая вкладка",
+    )
+
+    self.tabs.setCurrentIndex(
+        index
+    )
+
+    return browser
+
+def current_browser(self):
+
+    widget = self.tabs.currentWidget()
+
+    if isinstance(
+        widget,
+        QWebEngineView,
+    ):
+        return widget
+
+    return None
+
+def close_tab(
+    self,
+    index,
+):
+
+    if self.tabs.count() <= 1:
+
+        self.open_home()
+
+        return
+
+    widget = self.tabs.widget(
+        index
+    )
+
+    self.tabs.removeTab(
+        index
+    )
+
+    widget.deleteLater()
+
+def browser_title_changed(
+    self,
+    browser,
+    title,
+):
+
+    index = self.tabs.indexOf(
+        browser
+    )
+
+    if index < 0:
+        return
+
+    title = (
+        title.strip()
+        or "Новая вкладка"
+    )
+
+    if len(title) > 25:
+        title = (
+            title[:25]
+            + "..."
+        )
+
+    self.tabs.setTabText(
+        index,
+        title,
+    )
+
+def browser_url_changed(
+    self,
+    browser,
+    url,
+):
+
+    if browser is self.current_browser():
+
         self.address.setText(
             url.toString()
         )
 
-    def open_profile(self):
-        dialog = ProfileDialog(
-            self
+def sync_address(
+    self,
+    index,
+):
+
+    browser = self.current_browser()
+
+    if browser:
+
+        self.address.setText(
+            browser.url().toString()
         )
 
-        dialog.exec()
+    else:
 
-    def open_studio(self):
-        QMessageBox.information(
-            self,
-            "Orbit Studio",
-            (
-                "Orbit Studio — настройка интерфейса.\n\n"
-                "Темы уже доступны слева.\n"
-                "Полный редактор UI добавим следующим этапом."
-            ),
+        self.address.clear()
+
+# ========================================================
+# NAVIGATION
+# ========================================================
+
+def navigate(self):
+
+    text = (
+        self.address.text().strip()
+    )
+
+    if not text:
+        return
+
+    self.navigate_text(
+        text
+    )
+
+def navigate_text(
+    self,
+    text,
+):
+
+    text = text.strip()
+
+    if not text:
+        return
+
+    if text.startswith(
+        (
+            "http://",
+            "https://",
+        )
+    ):
+
+        url = text
+
+    elif "." in text and " " not in text:
+
+        url = (
+            "https://"
+            + text
         )
 
-    def open_vpn(self):
-        QMessageBox.information(
-            self,
-            "Orbit VPN",
-            (
-                "Orbit VPN\n\n"
-                "Здесь будет подключение к VPN-серверам."
-            ),
+    else:
+
+        search_engine = self.config.get(
+            "search_engine",
+            "https://www.google.com/search?q=",
         )
 
-    def open_workspaces(self):
-        QMessageBox.information(
-            self,
-            "Workspaces",
-            (
-                "Workspaces\n\n"
-                "Здесь будут рабочие пространства "
-                "Gaming / Work / Coding / Personal."
-            ),
+        url = (
+            search_engine
+            + quote(text)
         )
 
-    def open_notes(self):
-        QMessageBox.information(
-            self,
-            "Notes",
-            (
-                "Orbit Notes\n\n"
-                "Система заметок Orbit будет здесь."
-            ),
+    browser = self.current_browser()
+
+    if not browser:
+
+        browser = self.new_browser_tab()
+
+    browser.setUrl(
+        QUrl(url)
+    )
+
+def open_url(
+    self,
+    url,
+):
+
+    browser = self.current_browser()
+
+    if not browser:
+
+        browser = self.new_browser_tab()
+
+    browser.setUrl(
+        QUrl(url)
+    )
+
+def open_home(self):
+
+    page = HomePage(
+        self
+    )
+
+    index = self.tabs.addTab(
+        page,
+        "Orbit",
+    )
+
+    self.tabs.setCurrentIndex(
+        index
+    )
+
+# ========================================================
+# CONTROLS
+# ========================================================
+
+def go_back(self):
+
+    browser = self.current_browser()
+
+    if browser:
+        browser.back()
+
+def go_forward(self):
+
+    browser = self.current_browser()
+
+    if browser:
+        browser.forward()
+
+def reload_page(self):
+
+    browser = self.current_browser()
+
+    if browser:
+        browser.reload()
+
+# ========================================================
+# INTERNAL PAGES
+# ========================================================
+
+def open_internal_page(
+    self,
+    page,
+    title,
+):
+
+    index = self.tabs.addTab(
+        page,
+        title,
+    )
+
+    self.tabs.setCurrentIndex(
+        index
+    )
+
+def open_history(self):
+
+    self.open_internal_page(
+        HistoryPage(self),
+        "История",
+    )
+
+def open_bookmarks(self):
+
+    self.open_internal_page(
+        BookmarksPage(self),
+        "Закладки",
+    )
+
+def open_notes(self):
+
+    self.open_internal_page(
+        NotesPage(self),
+        "Notes",
+    )
+
+def open_downloads(self):
+
+    self.open_internal_page(
+        DownloadsPage(self),
+        "Загрузки",
+    )
+
+def open_settings(self):
+
+    self.open_internal_page(
+        SettingsPage(self),
+        "Настройки",
+    )
+
+# ========================================================
+# PROFILE
+# ========================================================
+
+def open_profile(self):
+
+    name = self.user.get(
+        "display_name",
+        self.user.get(
+            "username",
+            "User",
+        ),
+    )
+
+    xp = int(
+        self.user.get(
+            "xp",
+            0,
         )
+    )
 
-    def logout(self):
-        try:
-            post_api(
-                self.api_url,
-                "/api/auth/logout",
-                {},
-                token=self.token,
-            )
-        except Exception:
-            pass
+    level = (
+        xp // 500
+    ) + 1
 
-        clear_session()
-        self.close()
+    role = self.user.get(
+        "role",
+        "user",
+    )
 
+    role_text = (
+        "Founder • Creator of Orbit"
+        if role == "founder"
+        else self.user.get(
+            "title",
+            "Explorer",
+        )
+    )
+
+    QMessageBox.information(
+        self,
+        "Orbit Profile",
+        (
+            f"{name}\n\n"
+            f"{role_text}\n"
+            f"Level {level}\n"
+            f"{xp} XP"
+        ),
+    )
+
+# ========================================================
+# MENU
+# ========================================================
+
+def open_menu(self):
+
+    menu = self.menuBar()
+
+    menu.clear()
+
+    orbit_menu = menu.addMenu(
+        "Orbit"
+    )
+
+    history = QAction(
+        "История",
+        self,
+    )
+
+    bookmarks = QAction(
+        "Закладки",
+        self,
+    )
+
+    downloads = QAction(
+        "Загрузки",
+        self,
+    )
+
+    notes = QAction(
+        "Notes",
+        self,
+    )
+
+    settings = QAction(
+        "Настройки",
+        self,
+    )
+
+    orbit_menu.addAction(
+        history
+    )
+
+    orbit_menu.addAction(
+        bookmarks
+    )
+
+    orbit_menu.addAction(
+        downloads
+    )
+
+    orbit_menu.addAction(
+        notes
+    )
+
+    orbit_menu.addSeparator()
+
+    orbit_menu.addAction(
+        settings
+    )
+
+    history.triggered.connect(
+        self.open_history
+    )
+
+    bookmarks.triggered.connect(
+        self.open_bookmarks
+    )
+
+    downloads.triggered.connect(
+        self.open_downloads
+    )
+
+    notes.triggered.connect(
+        self.open_notes
+    )
+
+    settings.triggered.connect(
+        self.open_settings
+    )
+
+    menu.setVisible(
+        True
+    )
+```
 
 # ============================================================
-# API CHECK
-# ============================================================
 
-def check_api(api_url):
-    try:
-        response = requests.get(
-            f"{api_url}/health",
-            timeout=15,
-        )
-
-        return (
-            response.status_code == 200
-        )
-
-    except Exception:
-        return False
-
-
-# ============================================================
 # MAIN
+
 # ============================================================
 
 def main():
-    create_directories()
 
-    config = load_config()
+```
+ensure_dir = os.path.dirname(
+    SESSION_FILE
+)
 
-    api_url = API_URL
+os.makedirs(
+    ensure_dir,
+    exist_ok=True,
+)
 
-    app = QApplication(
-        sys.argv
-    )
+config = load_config()
 
-    app.setApplicationName(
-        APP_NAME
-    )
+app = QApplication(
+    sys.argv
+)
 
-    print(
-        "Welcome to Orbit Browser"
-    )
+app.setApplicationName(
+    APP_NAME
+)
 
-    if not check_api(
-        api_url
-    ):
-        QMessageBox.warning(
-            None,
-            "Orbit API",
-            (
-                "Orbit API недоступен.\n\n"
-                f"{api_url}"
-            ),
+app.setApplicationVersion(
+    APP_VERSION
+)
+
+app.setStyleSheet(
+    stylesheet(
+        config.get(
+            "theme",
+            "VOID",
         )
+    )
+)
 
-    saved_session = load_saved_session(
-        api_url
+print(
+    "Welcome to Orbit Browser"
+)
+
+if not check_api():
+
+    QMessageBox.warning(
+        None,
+        "Orbit API",
+        (
+            "Orbit API недоступен.\n\n"
+            f"{API_URL}"
+        ),
     )
 
-    if saved_session:
-        window = MainWindow(
-            api_url,
-            saved_session,
-            config,
-        )
+session = load_session()
 
-        window.show()
+if not session:
 
-        sys.exit(
-            app.exec()
-        )
-
-    auth = AuthWindow(
-        api_url
+    QMessageBox.warning(
+        None,
+        "Orbit Browser",
+        (
+            "Сохранённая сессия не найдена.\n\n"
+            "Сначала войдите в Orbit через "
+            "рабочую версию клиента."
+        ),
     )
 
-    if (
-        auth.exec()
-        != QDialog.DialogCode.Accepted
-    ):
-        sys.exit(0)
+    sys.exit(0)
 
-    window = MainWindow(
-        api_url,
-        auth.session,
-        config,
-    )
+window = OrbitBrowser(
+    session,
+    config,
+)
 
-    window.show()
+window.show()
 
-    sys.exit(
-        app.exec()
-    )
+sys.exit(
+    app.exec()
+)
+```
 
-
-if __name__ == "__main__":
-    main()
+if **name** == "**main**":
+main()
