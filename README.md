@@ -128,7 +128,7 @@ Orbit Connect позволяет указать пользовательский
 Build v1.16.1: Windows uses PyInstaller onedir (small OrbitBrowser.exe + companion folder), and build_all.bat collects Windows/Android outputs into .\gotovo. The top bar now has a sidebar hide/show button; Android includes the same control.
 
 
-## v1.16.6 — профиль, титулы, админ-панель и автообновление
+## v1.16.9 — профиль, титулы, админ-панель и автообновление
 
 - Титул применяется сразу после выбора/сохранения и сохраняется локально и на сервере.
 - Админ-панель теперь видит только роль `Admin`. `Helper` работает через раздел «Помощь».
@@ -149,3 +149,7 @@ Orbit Browser запускается как гость без регистрац
 
 ## Сайт и релизы
 Официальный сайт может вести пользователя напрямую на GitHub Releases. Задайте `ORBIT_RELEASE_URL` в Render. На сайте также размещено описание Orbit Browser и отметка, что проект создавался при участии ИИ.
+
+
+## Admin shortcut
+The Admin tab/link is hidden from the public website navigation and desktop sidebar. Admins can open it with `Ctrl+Shift+A`. Server-side role checks remain enabled.

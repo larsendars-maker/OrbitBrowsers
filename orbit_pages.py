@@ -6,7 +6,7 @@ import subprocess
 
 import requests
 from PySide6.QtCore import Qt, Signal, QObject, QThread, QTimer, QUrl
-from PySide6.QtGui import QDesktopServices
+from PySide6.QtGui import QCursor, QDesktopServices
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
@@ -14,6 +14,8 @@ from PySide6.QtWidgets import (
     QDialog,
     QFormLayout,
     QFrame,
+    QInputDialog,
+    QMenu,
     QGridLayout,
     QHBoxLayout,
     QLabel,
@@ -1511,38 +1513,93 @@ class AdminPanelPage(QWidget):
     def __init__(self, browser):
         super().__init__()
         self.browser = browser
-        role = browser.user.get("role", "user").lower()
-        if role != "admin":
+        self.role = browser.user.get("role", "user").lower()
+        if self.role not in {"helper", "admin"}:
+            QLabel("Нет доступа").show()
             return
-        layout = QVBoxLayout(self); layout.setContentsMargins(50, 36, 50, 35); layout.setSpacing(12)
+        self.setObjectName("moderationPanel")
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(42, 30, 42, 30)
+        layout.setSpacing(12)
         header = QHBoxLayout()
-        title = QLabel("Админ-панель")
-        title.setObjectName("pageTitle"); header.addWidget(title); header.addStretch()
-        refresh = QPushButton("↻ Обновить"); refresh.clicked.connect(self.refresh); header.addWidget(refresh)
+        title = QLabel("Админ-панель" if self.role == "admin" else "Панель Helper")
+        title.setObjectName("pageTitle")
+        header.addWidget(title); header.addStretch()
+        refresh = QPushButton("↻ Обновить")
+        refresh.clicked.connect(self.refresh)
+        header.addWidget(refresh)
         layout.addLayout(header)
-        self.summary = QLabel("Загрузка…"); self.summary.setObjectName("muted"); self.summary.setWordWrap(True); layout.addWidget(self.summary)
+        note = QLabel("Здесь видны только необходимые данные. Роли доступны Admin; Helper может модерировать ник и выдавать достижения.")
+        note.setObjectName("muted"); note.setWordWrap(True); layout.addWidget(note)
+        self.summary = QLabel("Загрузка…"); self.summary.setObjectName("muted"); layout.addWidget(self.summary)
         self.users = QListWidget(); layout.addWidget(self.users, 1)
         self.status = QLabel(""); self.status.setObjectName("muted"); layout.addWidget(self.status)
-        self.refresh()
-        fade_in(self)
+        self.refresh(); fade_in(self)
 
     def refresh(self):
         try:
-            r = requests.get(f"{self.browser.API_URL}/api/admin/overview", headers={"Authorization": f"Bearer {self.browser.token}"}, timeout=10)
-            data = r.json()
+            h = {"Authorization": f"Bearer {self.browser.token}"}
+            r = requests.get(f"{self.browser.API_URL}/api/moderation/users", headers=h, timeout=10)
             if r.status_code != 200:
-                self.summary.setText("Нет доступа к админ-панели.")
+                self.summary.setText("Нет доступа к панели модерации.")
                 return
-            self.summary.setText(f"Пользователи: {data.get('users',0)} · Helper: {data.get('helpers',0)} · Admin: {data.get('admins',0)} · Открытых обращений: {data.get('open_tickets',0)}")
-            u = requests.get(f"{self.browser.API_URL}/api/admin/users", headers={"Authorization": f"Bearer {self.browser.token}"}, timeout=10)
+            users = r.json().get("users", [])
+            if self.role == "admin":
+                try:
+                    s = requests.get(f"{self.browser.API_URL}/api/admin/overview", headers=h, timeout=10).json()
+                    self.summary.setText(f"Пользователи: {s.get('users',0)} · Helper: {s.get('helpers',0)} · Admin: {s.get('admins',0)} · Открытых обращений: {s.get('open_tickets',0)}")
+                except Exception:
+                    self.summary.setText(f"Пользователей: {len(users)}")
+            else:
+                try:
+                    s = requests.get(f"{self.browser.API_URL}/api/helper/overview", headers=h, timeout=10).json()
+                    self.summary.setText(f"Пользователей: {len(users)} · Открытых обращений: {s.get('open_tickets',0)}")
+                except Exception:
+                    self.summary.setText(f"Пользователей: {len(users)}")
             self.users.clear()
-            if u.status_code == 200:
-                for item in u.json().get("users", []):
-                    row = QListWidgetItem(f"{item['display_name']} · {item['role']} · {item['title']}")
-                    row.setData(Qt.ItemDataRole.UserRole, item.get("id"))
-                    self.users.addItem(row)
+            for item in users:
+                row = QListWidgetItem(f"{item['display_name']}  ·  @{item['username']}  ·  {item['role']}  ·  {item['title']}")
+                row.setData(Qt.ItemDataRole.UserRole, item.get("id"))
+                self.users.addItem(row)
+            self.users.itemDoubleClicked.connect(self.moderate_user)
         except Exception as exc:
             self.status.setText(f"Ошибка загрузки панели: {exc}")
+
+    def moderate_user(self, item):
+        user_id = item.data(Qt.ItemDataRole.UserRole)
+        if not user_id:
+            return
+        target_name = item.text().split("  ·  ")[0]
+        menu = QMenu(self)
+        rename = menu.addAction("Изменить ник")
+        achievement = menu.addAction("Выдать достижение")
+        role_action = None
+        if self.role == "admin":
+            role_action = menu.addAction("Изменить ранг (роль)")
+            menu.addSeparator()
+            menu.addAction("Открыть полную админку")
+        chosen = menu.exec(QCursor.pos())
+        if chosen == rename:
+            value, ok = QInputDialog.getText(self, "Изменить ник", f"Новый ник для {target_name}:")
+            if ok and value.strip():
+                r = requests.patch(f"{self.browser.API_URL}/api/moderation/users/{user_id}/display-name", headers={"Authorization": f"Bearer {self.browser.token}"}, json={"display_name": value.strip()}, timeout=10)
+                self.status.setText("Ник изменён." if r.ok else (r.json().get("detail", "Не удалось изменить ник") if r.content else "Не удалось изменить ник"))
+                self.refresh()
+        elif chosen == achievement:
+            keys = ["first_launch", "explorer", "collector", "navigator", "notes"]
+            labels = ["Первый шаг", "Исследователь", "Коллекционер", "Навигатор", "Архивариус"]
+            value, ok = QInputDialog.getItem(self, "Выдать достижение", "Достижение:", labels, 0, False)
+            if ok:
+                key = keys[labels.index(value)]
+                r = requests.patch(f"{self.browser.API_URL}/api/moderation/users/{user_id}/achievement", headers={"Authorization": f"Bearer {self.browser.token}"}, json={"achievement_key": key}, timeout=10)
+                self.status.setText("Достижение выдано." if r.ok else (r.json().get("detail", "Не удалось выдать достижение") if r.content else "Не удалось выдать достижение"))
+                self.refresh()
+        elif role_action is not None and chosen == role_action:
+            value, ok = QInputDialog.getItem(self, "Изменить ранг", "Роль:", ["user", "helper", "admin"], 0, False)
+            if ok:
+                r = requests.patch(f"{self.browser.API_URL}/api/admin/users/{user_id}/role", headers={"Authorization": f"Bearer {self.browser.token}"}, json={"role": value}, timeout=10)
+                self.status.setText("Роль изменена." if r.ok else (r.json().get("detail", "Не удалось изменить роль") if r.content else "Не удалось изменить роль"))
+                self.refresh()
 
 
 class SupportTicketDialog(QDialog):

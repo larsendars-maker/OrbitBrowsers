@@ -18,7 +18,7 @@ from orbit_storage import load_config, save_config, load_local_profile, save_loc
 from orbit_ui import THEMES, stylesheet, tr
 
 APP_NAME = "Orbit Browser"
-APP_VERSION = "1.16.6"
+APP_VERSION = "1.16.8"
 API_URL = "https://orbit-api-9uqa.onrender.com"
 GITHUB_REPO = "larsendars-maker/OrbitBrowsers"
 WINDOWS_APP_USER_MODEL_ID = "Larsenda.OrbitBrowser"
@@ -195,8 +195,8 @@ class OrbitBrowser(QMainWindow):
                 ("✦", "gemini", self.open_gemini),
                 ("⚙", "settings", self.open_settings),
             ]
-        elif role == "admin":
-            nav.insert(-1, ("▤", "admin_panel", self.open_admin_panel))
+        elif role in {"helper", "admin"}:
+            nav.insert(-1, ("◆", "admin", self.open_admin_panel))
         self.nav_buttons = {}
         for icon_text, key, fn in nav:
             button = QPushButton(f"{icon_text}   {tr(self.config.get('language', 'ru'), key)}")
@@ -273,6 +273,9 @@ class OrbitBrowser(QMainWindow):
         self.tabs.currentChanged.connect(lambda _i: self.update_tab_widths())
         self.close_shortcut = QShortcut(QKeySequence("Ctrl+W"), self)
         self.close_shortcut.activated.connect(self.close_current_tab)
+        self.admin_shortcut = QShortcut(QKeySequence("Ctrl+Shift+A"), self)
+        self.admin_shortcut.setContext(Qt.ShortcutContext.ApplicationShortcut)
+        self.admin_shortcut.activated.connect(self.open_admin_panel)
 
         self.home = HomePage(self)
         home_index = self.tabs.addTab(self.home, "Главная")
@@ -610,7 +613,7 @@ class OrbitBrowser(QMainWindow):
         self.open_internal_page(SupportPage(self), "Помощь")
 
     def open_admin_panel(self):
-        if self.is_guest or self.user.get("role", "user").lower() != "admin":
+        if self.is_guest or self.user.get("role", "user").lower() not in {"helper", "admin"}:
             return
         self.open_internal_page(AdminPanelPage(self), "Админ-панель")
 
@@ -633,6 +636,8 @@ class OrbitBrowser(QMainWindow):
             ("Диагностика", self.open_diagnostics),
             ("Настройки", self.open_settings),
         ]
+        if self.user.get("role", "user").lower() in {"helper", "admin"} and not self.is_guest:
+            entries.insert(-1, ("Админ-панель", self.open_admin_panel))
         for text, fn in entries:
             action = QAction(text, self)
             action.triggered.connect(fn)

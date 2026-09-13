@@ -16,7 +16,7 @@ try:
 except Exception:
     genai = None
 
-APP_VERSION = "1.16.7"
+APP_VERSION = "1.16.9"
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
 DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 FOUNDER_USERNAME = os.getenv("ORBIT_FOUNDER_USERNAME", "Larsenda").strip() or "Larsenda"
@@ -133,6 +133,14 @@ class AchievementClaimRequest(BaseModel):
 
 class AdminTitleGrantRequest(BaseModel):
     title_key: str
+
+
+class ModerationNicknameRequest(BaseModel):
+    display_name: str
+
+
+class ModerationAchievementRequest(BaseModel):
+    achievement_key: str
 
 
 class SupportTicketCreate(BaseModel):
@@ -548,6 +556,56 @@ def helper_overview(authorization: str | None = Header(default=None)):
         cur.execute("SELECT COUNT(*) FROM support_tickets")
         total_tickets = cur.fetchone()[0]
     return {"ok": True, "open_tickets": open_tickets, "total_tickets": total_tickets}
+
+
+@app.get("/api/moderation/users")
+def moderation_users(authorization: str | None = Header(default=None)):
+    row = require_user(authorization)
+    if not is_helper_or_admin(row):
+        raise HTTPException(403, "Helper or Admin role required")
+    with db() as conn, conn.cursor() as cur:
+        cur.execute("SELECT id,username,display_name,role,title,created_at FROM users ORDER BY created_at DESC LIMIT 200")
+        rows = cur.fetchall()
+    return {"ok": True, "users": [dict(id=r[0], username=r[1], display_name=r[2] or r[1], role=r[3] or "user", title=r[4] or "Explorer", created_at=r[5].isoformat()) for r in rows]}
+
+
+@app.patch("/api/moderation/users/{user_id}/display-name")
+def moderation_set_display_name(user_id: int, data: ModerationNicknameRequest, authorization: str | None = Header(default=None)):
+    moderator = require_user(authorization)
+    if not is_helper_or_admin(moderator):
+        raise HTTPException(403, "Helper or Admin role required")
+    display_name = data.display_name.strip()
+    if not display_name or len(display_name) > 64:
+        raise HTTPException(400, "Display name must contain 1-64 characters")
+    with db() as conn, conn.cursor() as cur:
+        cur.execute("UPDATE users SET display_name=%s WHERE id=%s RETURNING id,username,display_name,role,title", (display_name, user_id))
+        updated = cur.fetchone()
+        if not updated:
+            raise HTTPException(404, "User not found")
+        conn.commit()
+    return {"ok": True, "user": {"id": updated[0], "username": updated[1], "display_name": updated[2], "role": updated[3], "title": updated[4]}}
+
+
+@app.patch("/api/moderation/users/{user_id}/achievement")
+def moderation_grant_achievement(user_id: int, data: ModerationAchievementRequest, authorization: str | None = Header(default=None)):
+    moderator = require_user(authorization)
+    if not is_helper_or_admin(moderator):
+        raise HTTPException(403, "Helper or Admin role required")
+    key = data.achievement_key.strip()
+    if not key:
+        raise HTTPException(400, "Achievement key is required")
+    with db() as conn, conn.cursor() as cur:
+        cur.execute("SELECT key, name_ru FROM titles WHERE achievement_key=%s AND is_active=TRUE LIMIT 1", (key,))
+        title = cur.fetchone()
+        if not title:
+            raise HTTPException(404, "Achievement not found")
+        cur.execute("SELECT id FROM users WHERE id=%s LIMIT 1", (user_id,))
+        if not cur.fetchone():
+            raise HTTPException(404, "User not found")
+        cur.execute("INSERT INTO user_achievements(user_id,achievement_key) VALUES(%s,%s) ON CONFLICT DO NOTHING", (user_id, key))
+        cur.execute("INSERT INTO user_titles(user_id,title_key) VALUES(%s,%s) ON CONFLICT DO NOTHING", (user_id, title[0]))
+        conn.commit()
+    return {"ok": True, "achievement_key": key, "title_key": title[0], "title": title[1]}
 
 
 @app.get("/api/admin/users")
