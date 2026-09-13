@@ -16,13 +16,15 @@ try:
 except Exception:
     genai = None
 
-APP_VERSION = "1.16.4"
+APP_VERSION = "1.16.7"
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
 DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
+FOUNDER_USERNAME = os.getenv("ORBIT_FOUNDER_USERNAME", "Larsenda").strip() or "Larsenda"
 FOUNDER_EMAIL = os.getenv("ORBIT_FOUNDER_EMAIL", "").strip().lower()
 FOUNDER_PASSWORD = os.getenv("ORBIT_FOUNDER_PASSWORD", "")
 ANALYTICS_SECRET = os.getenv("ORBIT_ANALYTICS_SECRET", "orbit-dev-analytics-change-me")
 DOWNLOAD_URL = os.getenv("ORBIT_DOWNLOAD_URL", "").strip()
+RELEASE_URL = os.getenv("ORBIT_RELEASE_URL", "https://github.com/larsendars-maker/OrbitBrowsers/releases/latest").strip()
 DOWNLOAD_VERSION = os.getenv("ORBIT_DOWNLOAD_VERSION", APP_VERSION).strip()
 DOWNLOAD_FILE_NAME = os.getenv("ORBIT_DOWNLOAD_FILE_NAME", "OrbitBrowser-Setup.exe").strip()
 WEB_ORIGINS = [x.strip() for x in os.getenv("ORBIT_WEB_ORIGINS", "").split(",") if x.strip()]
@@ -240,6 +242,7 @@ def site_stats():
     return {"views": views, "unique_views": unique_views, "downloads": downloads,
             "unique_downloads": unique_downloads, "users": users}
 
+@app.on_event("startup")
 def startup():
     with db() as conn, conn.cursor() as cur:
         cur.execute("""CREATE TABLE IF NOT EXISTS users(
@@ -312,15 +315,15 @@ def startup():
                            role_required=EXCLUDED.role_required,is_active=TRUE""", t)
 
         if FOUNDER_EMAIL and FOUNDER_PASSWORD:
-            cur.execute("SELECT id FROM users WHERE LOWER(email)=LOWER(%s) LIMIT 1", (FOUNDER_EMAIL,))
+            cur.execute("SELECT id FROM users WHERE LOWER(email)=LOWER(%s) OR LOWER(username)=LOWER(%s) LIMIT 1", (FOUNDER_EMAIL, FOUNDER_USERNAME))
             found = cur.fetchone()
             if found:
                 uid = found[0]
-                cur.execute("UPDATE users SET username='Larsenda',display_name='Larsenda',role='admin',title='Создатель Orbit' WHERE id=%s", (uid,))
+                cur.execute("UPDATE users SET username=%s,display_name=%s,role='admin',title='Создатель Orbit' WHERE id=%s", (FOUNDER_USERNAME, FOUNDER_USERNAME, uid))
             else:
                 cur.execute("""INSERT INTO users(username,email,password_hash,display_name,title,xp,profile_theme,role)
-                               VALUES('Larsenda',%s,%s,'Larsenda','Создатель Orbit',0,'VOID','admin') RETURNING id""",
-                            (FOUNDER_EMAIL, pw_hash(FOUNDER_PASSWORD)))
+                               VALUES(%s,%s,%s,%s,'Создатель Orbit',0,'VOID','admin') RETURNING id""",
+                            (FOUNDER_USERNAME, FOUNDER_EMAIL, pw_hash(FOUNDER_PASSWORD), FOUNDER_USERNAME))
                 uid = cur.fetchone()[0]
             for key in ("creator", "admin"):
                 cur.execute("INSERT INTO user_titles(user_id,title_key) VALUES(%s,%s) ON CONFLICT DO NOTHING", (uid, key))
@@ -332,7 +335,7 @@ def startup():
                            VALUES('orbit-browser','Orbit Browser',%s,%s,%s,TRUE)
                            ON CONFLICT(key) DO UPDATE SET name=EXCLUDED.name,version=EXCLUDED.version,
                            file_name=EXCLUDED.file_name,url=EXCLUDED.url,is_active=TRUE""",
-                        (DOWNLOAD_VERSION, DOWNLOAD_FILE_NAME, DOWNLOAD_URL))
+                        (DOWNLOAD_VERSION, DOWNLOAD_FILE_NAME, DOWNLOAD_URL or RELEASE_URL))
         conn.commit()
 
 
@@ -370,7 +373,7 @@ def register(data: RegisterRequest):
         raise HTTPException(400, "Username must contain 3-32 characters")
     if len(data.password) < 8:
         raise HTTPException(400, "Password must contain at least 8 characters")
-    if username.lower() == "larsenda" and email != FOUNDER_EMAIL:
+    if username.lower() == FOUNDER_USERNAME.lower() and (not FOUNDER_EMAIL or email != FOUNDER_EMAIL):
         raise HTTPException(403, "This username is reserved")
     try:
         with db() as conn, conn.cursor() as cur:
@@ -681,7 +684,7 @@ def download_file(file_key: str, request: Request):
     if not row or not row[2] or not row[1]:
         raise HTTPException(404, "Download is not configured yet")
     record_event(request, "download")
-    response = RedirectResponse(row[1], status_code=302)
+    response = RedirectResponse(row[1] or RELEASE_URL, status_code=302)
     return ensure_visitor_cookie(response, request)
 
 

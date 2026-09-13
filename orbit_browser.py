@@ -18,7 +18,7 @@ from orbit_storage import load_config, save_config, load_local_profile, save_loc
 from orbit_ui import THEMES, stylesheet, tr
 
 APP_NAME = "Orbit Browser"
-APP_VERSION = "1.16.4"
+APP_VERSION = "1.16.6"
 API_URL = "https://orbit-api-9uqa.onrender.com"
 GITHUB_REPO = "larsendars-maker/OrbitBrowsers"
 WINDOWS_APP_USER_MODEL_ID = "Larsenda.OrbitBrowser"
@@ -114,8 +114,9 @@ class OrbitBrowser(QMainWindow):
 
     def __init__(self, session, config):
         super().__init__()
-        self.token = session["token"]
+        self.token = session.get("token")
         self.user = session["user"]
+        self.is_guest = bool(session.get("guest")) or not self.token
         self.config = config
         self.current_theme = config.get("theme", "VOID")
         self.API_URL = API_URL
@@ -184,7 +185,17 @@ class OrbitBrowser(QMainWindow):
             ("⚙", "settings", self.open_settings),
         ]
         role = self.user.get("role", "user").lower()
-        if role == "admin":
+        if self.is_guest:
+            nav = [
+                ("⌂", "home", self.show_home_screen),
+                ("▣", "tabs", self.show_web_area),
+                ("◷", "history", self.open_history),
+                ("☆", "bookmarks", self.open_bookmarks),
+                ("↓", "downloads", self.open_downloads),
+                ("✦", "gemini", self.open_gemini),
+                ("⚙", "settings", self.open_settings),
+            ]
+        elif role == "admin":
             nav.insert(-1, ("▤", "admin_panel", self.open_admin_panel))
         self.nav_buttons = {}
         for icon_text, key, fn in nav:
@@ -575,6 +586,9 @@ class OrbitBrowser(QMainWindow):
         self.open_internal_page(SettingsPage(self), "Настройки")
 
     def open_profile_page(self):
+        if self.is_guest:
+            QMessageBox.information(self, "Orbit Account", "Вы используете Orbit как гость.\n\nРегистрация не обязательна для обычного браузинга. После входа станут доступны аккаунт, синхронизация, титулы, достижения, обращения и другие облачные функции.")
+            return
         self.open_internal_page(ProfilePage(self), "Профиль")
 
     def open_gemini(self):
@@ -590,10 +604,13 @@ class OrbitBrowser(QMainWindow):
         self.address.setText(gemini_url)
 
     def open_support(self):
+        if self.is_guest:
+            QMessageBox.information(self, "Orbit Помощь", "Чтобы создавать и отслеживать обращения, войдите в Orbit Account.")
+            return
         self.open_internal_page(SupportPage(self), "Помощь")
 
     def open_admin_panel(self):
-        if self.user.get("role", "user").lower() != "admin":
+        if self.is_guest or self.user.get("role", "user").lower() != "admin":
             return
         self.open_internal_page(AdminPanelPage(self), "Админ-панель")
 
@@ -627,6 +644,8 @@ class OrbitBrowser(QMainWindow):
 
     def update_identity_ui(self):
         name = self.user.get("display_name") or self.user.get("username", "Аккаунт")
+        if self.is_guest:
+            name = "Гость · Войти"
         if hasattr(self, "account_button"):
             self.account_button.setText(name)
         if hasattr(self, "top_profile_button"):
@@ -753,8 +772,22 @@ def main():
         QMessageBox.warning(None, "Orbit API", f"Orbit API недоступен.\n\n{API_URL}")
     session = load_session()
     if not session:
-        QMessageBox.warning(None, "Orbit Browser", "Сохранённая сессия не найдена.\n\nСначала войдите в Orbit.")
-        sys.exit(0)
+        session = {
+            "token": None,
+            "guest": True,
+            "user": {
+                "id": None,
+                "username": "Guest",
+                "display_name": "Гость",
+                "bio": "",
+                "title": "Гость",
+                "equipped_title": "Гость",
+                "unlocked_titles": [],
+                "xp": 0,
+                "profile_theme": config.get("theme", "VOID"),
+                "role": "guest",
+            },
+        }
     local_profile = load_local_profile()
     if local_profile:
         merged = dict(session["user"])

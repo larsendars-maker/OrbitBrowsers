@@ -7,10 +7,14 @@ services:
     startCommand: uvicorn server.app:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /health
     envVars:
+      - key: ORBIT_RELEASE_URL
+        value: https://github.com/larsendars-maker/OrbitBrowsers/releases/latest
       - key: DATABASE_URL
         fromDatabase:
           name: orbit-postgres
           property: connectionString
+      - key: ORBIT_FOUNDER_USERNAME
+        value: Larsenda
       - key: ORBIT_FOUNDER_EMAIL
         sync: false
       - key: ORBIT_FOUNDER_PASSWORD
@@ -29,3 +33,5 @@ services:
 databases:
   - name: orbit-postgres
     plan: free
+
+# Set these in the Render dashboard as secrets; do not commit real values.
