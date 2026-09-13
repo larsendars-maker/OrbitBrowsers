@@ -1,375 +1,289 @@
+from html import escape
+from urllib.parse import quote_plus
+
+import requests
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QCheckBox,
-    QFormLayout,
-    QHBoxLayout,
-    QLabel,
-    QListWidget,
-    QListWidgetItem,
-    QLineEdit,
-    QProgressBar,
-    QPushButton,
-    QVBoxLayout,
-    QGridLayout,
-    QFrame,
-    QWidget,
+    QFrame, QHBoxLayout, QLabel, QLineEdit, QListWidget,
+    QListWidgetItem, QPushButton, QVBoxLayout, QWidget,
 )
 
-from orbit_storage import (
-    add_bookmark,
-    load_bookmarks,
-    load_notes,
-    save_notes,
-    save_config,
-)
-from orbit_ui import THEMES
+from orbit_storage import add_bookmark, load_bookmarks, load_notes, save_notes
+from orbit_ui import fade_in
 
 
-class HomePage(QWidget):
-    def __init__(self, window):
+class SearchPage(QWidget):
+    def __init__(self, browser, query=""):
         super().__init__()
-        self.window = window
+        self.browser = browser
+        self.setObjectName("searchPage")
+        self.build(query)
+
+    def build(self, query):
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(40, 70, 40, 60)
-        layout.setSpacing(14)
+        layout.setContentsMargins(54, 48, 54, 40)
+        layout.setSpacing(18)
 
-        layout.addStretch(2)
+        brand = QLabel("ORBIT")
+        brand.setObjectName("searchBrand")
+        brand.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(brand)
 
-        logo = QLabel("ORBIT")
-        logo.setObjectName("orbitLogo")
-        logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(logo)
+        tagline = QLabel("Search the web, the Orbit way.")
+        tagline.setObjectName("muted")
+        tagline.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(tagline)
 
-        welcome = QLabel("Welcome")
-        welcome.setObjectName("homeWelcome")
-        welcome.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(welcome)
+        shell = QFrame()
+        shell.setObjectName("searchShell")
+        row = QHBoxLayout(shell)
+        row.setContentsMargins(10, 2, 10, 2)
+        self.input = QLineEdit()
+        self.input.setPlaceholderText("Search the web or enter an address")
+        self.input.setText(query)
+        go = QPushButton("Search")
+        go.setProperty("accent", True)
+        row.addWidget(self.input, 1)
+        row.addWidget(go)
+        layout.addWidget(shell)
+        self.input.returnPressed.connect(self.run_search)
+        go.clicked.connect(self.run_search)
 
-        search = QLineEdit()
-        search.setObjectName("address")
-        search.setMinimumHeight(58)
-        search.setMaximumWidth(760)
-        search.setPlaceholderText("Поиск в интернете или введите адрес…")
-        search.returnPressed.connect(lambda: self.window.navigate_text(search.text()))
-        row = QHBoxLayout()
-        row.addStretch()
-        row.addWidget(search)
-        row.addStretch()
-        layout.addLayout(row)
+        self.results = QListWidget()
+        layout.addWidget(self.results, 1)
+        self.results.itemDoubleClicked.connect(self.open_item)
 
-        shortcuts = QHBoxLayout()
-        shortcuts.setSpacing(3)
-        shortcuts.addStretch()
-        for title, callback in [
-            ("История", self.window.open_history),
-            ("Закладки", self.window.open_bookmarks),
-            ("Загрузки", self.window.open_downloads),
-            ("Notes", self.window.open_notes),
-            ("Профиль", self.window.open_profile),
-            ("Настройки", self.window.open_settings),
-        ]:
-            button = QPushButton(title)
-            button.setObjectName("homeShortcut")
-            button.clicked.connect(callback)
-            shortcuts.addWidget(button)
-        shortcuts.addStretch()
-        layout.addLayout(shortcuts)
-        layout.addStretch(3)
+        if query:
+            self.run_search()
+        else:
+            self.show_default()
+        fade_in(self)
+
+    def show_default(self):
+        self.results.clear()
+        items = [
+            ("History", "Open your browsing history", "orbit://history"),
+            ("Bookmarks", "Your saved pages", "orbit://bookmarks"),
+            ("Notes", "Your Orbit notes", "orbit://notes"),
+            ("Settings", "Customize Orbit", "orbit://settings"),
+        ]
+        for title, desc, url in items:
+            item = QListWidgetItem(f"{title}\n{desc}")
+            item.setData(Qt.ItemDataRole.UserRole, url)
+            self.results.addItem(item)
+
+    def run_search(self):
+        text = self.input.text().strip()
+        if not text:
+            self.show_default()
+            return
+        if text.startswith(("http://", "https://")):
+            self.browser.open_url(text)
+            return
+        if "." in text and " " not in text:
+            self.browser.open_url("https://" + text)
+            return
+        self.results.clear()
+        self.results.addItem(QListWidgetItem("Searching Orbit…"))
+        try:
+            r = requests.get(
+                "https://html.duckduckgo.com/html/",
+                params={"q": text},
+                headers={"User-Agent": "OrbitBrowser/1.0"},
+                timeout=15,
+            )
+            r.raise_for_status()
+            html = r.text
+            # Lightweight extraction so Orbit owns the search page UI.
+            import re
+            matches = re.findall(
+                r'<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>(.*?)</a>',
+                html,
+                flags=re.S | re.I,
+            )
+            self.results.clear()
+            if not matches:
+                self.results.addItem(QListWidgetItem("No results found."))
+                return
+            for url, title_html in matches[:20]:
+                title = re.sub(r"<.*?>", "", title_html)
+                item = QListWidgetItem(f"{title}\n{url}")
+                item.setData(Qt.ItemDataRole.UserRole, url)
+                self.results.addItem(item)
+        except Exception as exc:
+            self.results.clear()
+            self.results.addItem(QListWidgetItem(f"Orbit Search error: {exc}"))
+
+    def open_item(self, item):
+        url = item.data(Qt.ItemDataRole.UserRole)
+        if url:
+            self.browser.open_url(url)
+
+
+class HomePage(SearchPage):
+    pass
 
 
 class HistoryPage(QWidget):
-    def __init__(self, window):
+    def __init__(self, browser):
         super().__init__()
-        self.window = window
+        self.browser = browser
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(42, 34, 42, 34)
-        layout.setSpacing(12)
-
-        title = QLabel("История")
+        layout.setContentsMargins(40, 36, 40, 30)
+        title = QLabel("History")
         title.setObjectName("pageTitle")
         layout.addWidget(title)
-
-        subtitle = QLabel("Недавно открытые страницы")
-        subtitle.setObjectName("muted")
-        layout.addWidget(subtitle)
-
+        sub = QLabel("Pages you've visited in Orbit")
+        sub.setObjectName("muted")
+        layout.addWidget(sub)
         self.list = QListWidget()
         layout.addWidget(self.list, 1)
         self.refresh()
         self.list.itemDoubleClicked.connect(self.open_item)
+        fade_in(self)
 
     def refresh(self):
         self.list.clear()
-        try:
-            items = self.window.web_profile.history().items()
-        except Exception:
-            items = []
-        for item in reversed(items):
+        for item in reversed(self.browser.web_profile.history().items()):
             url = item.url().toString()
             if not url:
                 continue
             row = QListWidgetItem(f"{item.title() or url}\n{url}")
             row.setData(Qt.ItemDataRole.UserRole, url)
             self.list.addItem(row)
-        if self.list.count() == 0:
-            self.list.addItem("История пока пуста")
 
     def open_item(self, item):
         url = item.data(Qt.ItemDataRole.UserRole)
         if url:
-            self.window.open_url(url)
+            self.browser.open_url(url)
 
 
 class BookmarksPage(QWidget):
-    def __init__(self, window):
+    def __init__(self, browser):
         super().__init__()
-        self.window = window
+        self.browser = browser
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(42, 34, 42, 34)
-        layout.setSpacing(12)
-
-        title = QLabel("Закладки")
+        layout.setContentsMargins(40, 36, 40, 30)
+        title = QLabel("Bookmarks")
         title.setObjectName("pageTitle")
         layout.addWidget(title)
-
-        row = QHBoxLayout()
-        add = QPushButton("Добавить текущую")
+        add = QPushButton("Save current page")
         add.setProperty("accent", True)
         add.clicked.connect(self.add_current)
-        row.addWidget(add)
-        refresh = QPushButton("Обновить")
-        refresh.clicked.connect(self.refresh)
-        row.addWidget(refresh)
-        row.addStretch()
-        layout.addLayout(row)
-
+        layout.addWidget(add)
         self.list = QListWidget()
         layout.addWidget(self.list, 1)
-        self.list.itemDoubleClicked.connect(self.open_item)
         self.refresh()
+        self.list.itemDoubleClicked.connect(self.open_item)
+        fade_in(self)
 
     def refresh(self):
         self.list.clear()
         for item in load_bookmarks():
-            url = item.get("url", "")
-            if not url:
-                continue
-            row = QListWidgetItem(f"{item.get('title', url)}\n{url}")
-            row.setData(Qt.ItemDataRole.UserRole, url)
+            row = QListWidgetItem(f'{item.get("title", "")}\n{item.get("url", "")}')
+            row.setData(Qt.ItemDataRole.UserRole, item.get("url", ""))
             self.list.addItem(row)
-        if self.list.count() == 0:
-            self.list.addItem("Закладок пока нет")
 
     def add_current(self):
-        browser = self.window.current_browser()
-        if browser:
-            add_bookmark(browser.title(), browser.url().toString())
+        page = self.browser.current_browser()
+        if page:
+            add_bookmark(page.title(), page.url().toString())
             self.refresh()
 
     def open_item(self, item):
         url = item.data(Qt.ItemDataRole.UserRole)
         if url:
-            self.window.open_url(url)
+            self.browser.open_url(url)
 
 
 class NotesPage(QWidget):
-    def __init__(self, _window):
+    def __init__(self, browser):
         super().__init__()
+        self.browser = browser
         self.notes = load_notes()
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(42, 34, 42, 34)
-        layout.setSpacing(12)
-
+        layout.setContentsMargins(40, 36, 40, 30)
         title = QLabel("Notes")
         title.setObjectName("pageTitle")
         layout.addWidget(title)
-
-        row = QHBoxLayout()
-        self.editor = QLineEdit()
-        self.editor.setPlaceholderText("Новая заметка…")
-        row.addWidget(self.editor, 1)
-        add = QPushButton("Сохранить")
-        add.setProperty("accent", True)
-        add.clicked.connect(self.add_note)
-        row.addWidget(add)
-        layout.addLayout(row)
-
+        self.input = QLineEdit()
+        self.input.setPlaceholderText("Write a note…")
+        layout.addWidget(self.input)
+        save = QPushButton("Save note")
+        save.setProperty("accent", True)
+        save.clicked.connect(self.add_note)
+        layout.addWidget(save)
         self.list = QListWidget()
         layout.addWidget(self.list, 1)
         self.refresh()
+        fade_in(self)
 
     def add_note(self):
-        text = self.editor.text().strip()
+        text = self.input.text().strip()
         if not text:
             return
         self.notes.insert(0, text)
         save_notes(self.notes)
-        self.editor.clear()
+        self.input.clear()
         self.refresh()
 
     def refresh(self):
         self.list.clear()
-        self.list.addItems(self.notes)
-        if not self.notes:
-            self.list.addItem("Заметок пока нет")
+        for note in self.notes:
+            self.list.addItem(note)
 
 
 class DownloadsPage(QWidget):
-    def __init__(self, window):
+    def __init__(self, browser):
         super().__init__()
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(42, 34, 42, 34)
-        layout.setSpacing(12)
-        title = QLabel("Загрузки")
+        layout.setContentsMargins(40, 36, 40, 30)
+        title = QLabel("Downloads")
         title.setObjectName("pageTitle")
         layout.addWidget(title)
         self.list = QListWidget()
         layout.addWidget(self.list, 1)
         try:
-            downloads = window.web_profile.downloads()
+            for download in browser.web_profile.downloads():
+                self.list.addItem(download.suggestedFileName())
         except Exception:
-            downloads = []
-        for download in downloads:
-            self.list.addItem(download.suggestedFileName())
-        if self.list.count() == 0:
-            self.list.addItem("Загрузок пока нет")
+            self.list.addItem("No downloads yet")
+        fade_in(self)
 
 
 class SettingsPage(QWidget):
-    def __init__(self, window):
+    def __init__(self, browser):
         super().__init__()
-        self.window = window
+        self.browser = browser
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(42, 34, 42, 34)
-        layout.setSpacing(18)
-
-        title = QLabel("Настройки")
+        layout.setContentsMargins(40, 36, 40, 30)
+        title = QLabel("Settings")
         title.setObjectName("pageTitle")
         layout.addWidget(title)
-
-        appearance_card = QFrame()
-        appearance_card.setObjectName("settingsCard")
-        card = QVBoxLayout(appearance_card)
-        card.setContentsMargins(24, 22, 24, 22)
-        card.setSpacing(14)
-
-        heading = QLabel("Внешний вид")
-        heading.setObjectName("sectionTitle")
-        card.addWidget(heading)
-
+        sub = QLabel("Appearance and Orbit behavior")
+        sub.setObjectName("muted")
+        layout.addWidget(sub)
         row = QHBoxLayout()
-        row.addWidget(QLabel("Тема Orbit"))
-        self.theme = QComboBox()
-        self.theme.addItems(THEMES.keys())
-        self.theme.setCurrentText(window.current_theme)
-        self.theme.currentTextChanged.connect(window.change_theme)
+        row.addWidget(QLabel("Theme"))
+        self.theme = browser.theme_combo
         row.addWidget(self.theme)
         row.addStretch()
-        card.addLayout(row)
-
-        self.site_theme = QCheckBox("Применять тему Orbit к сайтам")
-        self.site_theme.setChecked(bool(window.config.get("site_theme_enabled", True)))
-        self.site_theme.stateChanged.connect(self.save_site_theme)
-        card.addWidget(self.site_theme)
-
-        hint = QLabel("Тёмная тема применяется к интерфейсу Orbit и, где позволяет сайт, к содержимому страниц.")
-        hint.setObjectName("muted")
-        hint.setWordWrap(True)
-        card.addWidget(hint)
-
-        layout.addWidget(appearance_card)
+        layout.addLayout(row)
+        row2 = QHBoxLayout()
+        row2.addWidget(QLabel("Apply Orbit theme to websites"))
+        self.theme_sites = QPushButton("ON" if browser.config.get("site_theming", True) else "OFF")
+        self.theme_sites.setProperty("accent", browser.config.get("site_theming", True))
+        row2.addWidget(self.theme_sites)
+        row2.addStretch()
+        layout.addLayout(row2)
+        self.theme_sites.clicked.connect(self.toggle_site_theme)
         layout.addStretch()
+        fade_in(self)
 
-    def save_site_theme(self, state):
-        self.window.config["site_theme_enabled"] = bool(state)
-        save_config(self.window.config)
-        self.window.apply_site_theme_to_all()
-
-
-class ProfilePage(QWidget):
-    def __init__(self, window):
-        super().__init__()
-        self.window = window
-        self.build()
-
-    def build(self):
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(42, 34, 42, 34)
-        layout.setSpacing(18)
-
-        top = QFrame()
-        top.setObjectName("profileCard")
-        top_layout = QHBoxLayout(top)
-        top_layout.setContentsMargins(24, 24, 24, 24)
-
-        avatar = QLabel()
-        avatar.setText((self.window.user.get("display_name") or self.window.user.get("username", "O"))[0].upper())
-        avatar.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        avatar.setFixedSize(78, 78)
-        avatar.setStyleSheet("font-size:32px;font-weight:800;border-radius:39px;background:#252733;")
-        top_layout.addWidget(avatar)
-
-        details = QVBoxLayout()
-        name = self.window.user.get("display_name") or self.window.user.get("username", "User")
-        username = self.window.user.get("username", "user")
-        details.addWidget(QLabel(f"<b style='font-size:24px'>{name}</b>"))
-        details.addWidget(QLabel(f"@{username}"))
-        role = self.window.user.get("role", "user")
-        badge_text = "👑 Founder · Creator of Orbit" if role == "founder" else self.window.user.get("title", "Explorer")
-        badge = QLabel(badge_text)
-        badge.setObjectName("badge")
-        details.addWidget(badge)
-        top_layout.addLayout(details)
-        top_layout.addStretch()
-        layout.addWidget(top)
-
-        xp = int(self.window.user.get("xp", 0))
-        level = xp // 500 + 1
-        xp_now = xp % 500
-
-        level_row = QHBoxLayout()
-        level_row.addWidget(QLabel(f"Level {level}"))
-        level_row.addStretch()
-        level_row.addWidget(QLabel(f"{xp} XP"))
-        layout.addLayout(level_row)
-
-        progress = QProgressBar()
-        progress.setRange(0, 500)
-        progress.setValue(xp_now)
-        layout.addWidget(progress)
-
-        stats = QFrame()
-        stats.setObjectName("contentCard")
-        stats_layout = QGridLayout(stats)
-        stats_layout.setContentsMargins(20, 18, 20, 18)
-        for col, (label, value) in enumerate([
-            ("Вкладки", "—"),
-            ("Заметки", str(len(load_notes()))),
-            ("Закладки", str(len(load_bookmarks()))),
-        ]):
-            stats_layout.addWidget(QLabel(label), 0, col)
-            value_label = QLabel(value)
-            value_label.setStyleSheet("font-size:20px;font-weight:700;")
-            stats_layout.addWidget(value_label, 1, col)
-        layout.addWidget(stats)
-
-        achievements = QFrame()
-        achievements.setObjectName("contentCard")
-        a_layout = QVBoxLayout(achievements)
-        a_layout.setContentsMargins(20, 18, 20, 18)
-        a_layout.addWidget(QLabel("Ачивки"))
-        items = [
-            ("🚀", "First Flight", 100),
-            ("🌌", "Explorer", 250),
-            ("⚡", "Power User", 500),
-            ("✦", "Creator", 750),
-            ("👑", "Founder", 1000),
-        ]
-        for icon, title, required in items:
-            row = QHBoxLayout()
-            row.addWidget(QLabel(f"{icon} {title}"))
-            row.addStretch()
-            row.addWidget(QLabel("Разблокировано" if xp >= required or (title == "Founder" and role == "founder") else "Заблокировано"))
-            a_layout.addLayout(row)
-        layout.addWidget(achievements)
-        layout.addStretch()
+    def toggle_site_theme(self):
+        enabled = not self.browser.config.get("site_theming", True)
+        self.browser.config["site_theming"] = enabled
+        self.theme_sites.setText("ON" if enabled else "OFF")
+        self.theme_sites.setProperty("accent", enabled)
+        self.theme_sites.style().unpolish(self.theme_sites)
+        self.theme_sites.style().polish(self.theme_sites)

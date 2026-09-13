@@ -11,11 +11,9 @@ NOTES_FILE = DATA_DIR / "notes.json"
 
 DEFAULT_CONFIG = {
     "theme": "VOID",
-    "search_engine": "https://www.google.com/search?q=",
-    "homepage": "orbit://home",
+    "search_engine": "orbit",
+    "site_theming": True,
     "animations": True,
-    "site_theme_enabled": True,
-    "update_check_minutes": 30,
 }
 
 
@@ -29,24 +27,25 @@ def read_json(path, default):
     if not path.exists():
         return default
     try:
-        with path.open("r", encoding="utf-8") as file:
-            return json.load(file)
+        with path.open("r", encoding="utf-8") as f:
+            return json.load(f)
     except Exception:
         return default
 
 
 def write_json(path, data):
     ensure_storage()
-    with path.open("w", encoding="utf-8") as file:
-        json.dump(data, file, ensure_ascii=False, indent=4)
+    with path.open("w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
 
 
 def load_config():
     config = read_json(CONFIG_FILE, {})
-    if not isinstance(config, dict):
-        config = {}
     result = DEFAULT_CONFIG.copy()
-    result.update(config)
+    if isinstance(config, dict):
+        result.update(config)
+    if result.get("theme") not in {"VOID", "ICE", "MIDNIGHT", "EMBER"}:
+        result["theme"] = "VOID"
     write_json(CONFIG_FILE, result)
     return result
 
@@ -56,32 +55,27 @@ def save_config(config):
 
 
 def load_bookmarks():
-    data = read_json(BOOKMARKS_FILE, [])
-    return data if isinstance(data, list) else []
+    value = read_json(BOOKMARKS_FILE, [])
+    return value if isinstance(value, list) else []
 
 
-def save_bookmarks(bookmarks):
-    write_json(BOOKMARKS_FILE, bookmarks)
+def save_bookmarks(items):
+    write_json(BOOKMARKS_FILE, items)
 
 
 def add_bookmark(title, url):
-    bookmarks = load_bookmarks()
-    if not any(item.get("url") == url for item in bookmarks):
-        bookmarks.insert(0, {"title": title or url, "url": url})
-        save_bookmarks(bookmarks)
-    return bookmarks
-
-
-def remove_bookmark(url):
-    bookmarks = [item for item in load_bookmarks() if item.get("url") != url]
-    save_bookmarks(bookmarks)
-    return bookmarks
+    items = load_bookmarks()
+    if any(x.get("url") == url for x in items):
+        return items
+    items.insert(0, {"title": title or url, "url": url})
+    save_bookmarks(items)
+    return items
 
 
 def load_notes():
-    data = read_json(NOTES_FILE, [])
-    return data if isinstance(data, list) else []
+    value = read_json(NOTES_FILE, [])
+    return value if isinstance(value, list) else []
 
 
-def save_notes(notes):
-    write_json(NOTES_FILE, notes)
+def save_notes(items):
+    write_json(NOTES_FILE, items)
