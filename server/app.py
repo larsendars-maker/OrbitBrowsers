@@ -1,30 +1,30 @@
-```python
 import hashlib
 import os
 import secrets
+from datetime import datetime, timezone
 
 import psycopg
 from fastapi import FastAPI, Header, HTTPException
 from pydantic import BaseModel, EmailStr
 
 
-app = FastAPI(
-    title="Orbit API",
-    version="0.2.0",
-)
+APP_VERSION = "0.2.1"
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 
+app = FastAPI(
+    title="Orbit API",
+    version=APP_VERSION,
+)
 
-# ============================================================
+
+# =========================
 # DATABASE
-# ============================================================
+# =========================
 
 def get_connection():
     if not DATABASE_URL:
-        raise RuntimeError(
-            "DATABASE_URL не настроен в Environment Variables Render."
-        )
+        raise RuntimeError("DATABASE_URL is not configured")
 
     return psycopg.connect(DATABASE_URL)
 
@@ -32,13 +32,12 @@ def get_connection():
 def init_database():
     with get_connection() as conn:
         with conn.cursor() as cur:
-
             cur.execute(
                 """
                 CREATE TABLE IF NOT EXISTS users (
-                    id BIGSERIAL PRIMARY KEY,
-                    username TEXT NOT NULL UNIQUE,
-                    email TEXT NOT NULL UNIQUE,
+                    id SERIAL PRIMARY KEY,
+                    username VARCHAR(32) NOT NULL UNIQUE,
+                    email VARCHAR(255) NOT NULL UNIQUE,
                     password_hash TEXT NOT NULL,
                     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
                 )
@@ -48,81 +47,78 @@ def init_database():
             cur.execute(
                 """
                 CREATE TABLE IF NOT EXISTS sessions (
-                    id BIGSERIAL PRIMARY KEY,
-                    user_id BIGINT NOT NULL
-                        REFERENCES users(id)
-                        ON DELETE CASCADE,
+                    id SERIAL PRIMARY KEY,
+                    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
                     token_hash TEXT NOT NULL UNIQUE,
                     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
                 )
                 """
             )
 
-            conn.commit()
+        conn.commit()
 
 
-# ============================================================
-# PASSWORD
-# ============================================================
+# =========================
+# PASSWORDS
+# =========================
 
-def hash_password(
-    password: str,
-    salt: bytes | None = None,
-):
-    if salt is None:
-        salt = secrets.token_bytes(16)
+def hash_password(password: str) -> str:
+    salt = os.urandom(16)
 
-    password_hash = hashlib.scrypt(
+    derived_key = hashlib.scrypt(
         password.encode("utf-8"),
         salt=salt,
-        n=2**14,
+        n=16384,
         r=8,
         p=1,
+        dklen=64,
     )
 
     return (
         salt.hex()
         + ":"
-        + password_hash.hex()
+        + derived_key.hex()
     )
 
 
-def verify_password(
-    password: str,
-    stored_hash: str,
-):
+def verify_password(password: str, stored_hash: str) -> bool:
     try:
-        salt_hex, hash_hex = stored_hash.split(":")
+        salt_hex, hash_hex = stored_hash.split(":", 1)
 
         salt = bytes.fromhex(salt_hex)
+        expected_hash = bytes.fromhex(hash_hex)
 
-        password_hash = hashlib.scrypt(
+        derived_key = hashlib.scrypt(
             password.encode("utf-8"),
             salt=salt,
-            n=2**14,
+            n=16384,
             r=8,
             p=1,
+            dklen=64,
         )
 
         return secrets.compare_digest(
-            password_hash.hex(),
-            hash_hex,
+            derived_key,
+            expected_hash,
         )
 
     except Exception:
         return False
 
 
-# ============================================================
-# SESSION
-# ============================================================
+# =========================
+# SESSIONS
+# =========================
 
-def create_session(user_id: int):
-    token = secrets.token_urlsafe(48)
-
-    token_hash = hashlib.sha256(
+def hash_token(token: str) -> str:
+    return hashlib.sha256(
         token.encode("utf-8")
     ).hexdigest()
+
+
+def create_session(user_id: int) -> str:
+    token = secrets.token_urlsafe(48)
+    token_hash = hash_token(token)
 
     with get_connection() as conn:
         with conn.cursor() as cur:
@@ -140,30 +136,28 @@ def create_session(user_id: int):
                 ),
             )
 
-            conn.commit()
+        conn.commit()
 
     return token
 
 
 def get_user_by_token(token: str):
-
-    token_hash = hashlib.sha256(
-        token.encode("utf-8")
-    ).hexdigest()
+    token_hash = hash_token(token)
 
     with get_connection() as conn:
         with conn.cursor() as cur:
-
             cur.execute(
                 """
                 SELECT
                     users.id,
                     users.username,
-                    users.email
+                    users.email,
+                    users.created_at
                 FROM sessions
-                JOIN users
+                INNER JOIN users
                     ON users.id = sessions.user_id
                 WHERE sessions.token_hash = %s
+                LIMIT 1
                 """,
                 (token_hash,),
             )
@@ -171,9 +165,35 @@ def get_user_by_token(token: str):
             return cur.fetchone()
 
 
-# ============================================================
+def extract_bearer_token(authorization: str | None) -> str:
+    if not authorization:
+        raise HTTPException(
+            status_code=401,
+            detail="Authorization header is missing",
+        )
+
+    parts = authorization.split(" ", 1)
+
+    if len(parts) != 2:
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid authorization header",
+        )
+
+    scheme, token = parts
+
+    if scheme.lower() != "bearer" or not token.strip():
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid authorization header",
+        )
+
+    return token.strip()
+
+
+# =========================
 # MODELS
-# ============================================================
+# =========================
 
 class RegisterRequest(BaseModel):
     username: str
@@ -186,49 +206,54 @@ class LoginRequest(BaseModel):
     password: str
 
 
-# ============================================================
+# =========================
 # STARTUP
-# ============================================================
+# =========================
 
 @app.on_event("startup")
 def startup():
     init_database()
 
 
-# ============================================================
+# =========================
 # HEALTH
-# ============================================================
+# =========================
 
 @app.get("/health")
 def health():
     return {
         "ok": True,
         "service": "orbit-api",
-        "version": "0.2.0",
+        "version": APP_VERSION,
     }
 
 
-# ============================================================
+# =========================
 # REGISTER
-# ============================================================
+# =========================
 
 @app.post("/api/auth/register")
 def register(data: RegisterRequest):
-
     username = data.username.strip()
-    email = data.email.lower().strip()
+    email = str(data.email).strip().lower()
     password = data.password
 
     if len(username) < 3:
         raise HTTPException(
             status_code=400,
-            detail="Имя пользователя должно содержать минимум 3 символа.",
+            detail="Username must contain at least 3 characters",
+        )
+
+    if len(username) > 32:
+        raise HTTPException(
+            status_code=400,
+            detail="Username is too long",
         )
 
     if len(password) < 6:
         raise HTTPException(
             status_code=400,
-            detail="Пароль должен содержать минимум 6 символов.",
+            detail="Password must contain at least 6 characters",
         )
 
     password_hash = hash_password(password)
@@ -236,7 +261,6 @@ def register(data: RegisterRequest):
     try:
         with get_connection() as conn:
             with conn.cursor() as cur:
-
                 cur.execute(
                     """
                     INSERT INTO users (
@@ -245,7 +269,7 @@ def register(data: RegisterRequest):
                         password_hash
                     )
                     VALUES (%s, %s, %s)
-                    RETURNING id, username, email
+                    RETURNING id, username, email, created_at
                     """,
                     (
                         username,
@@ -256,47 +280,51 @@ def register(data: RegisterRequest):
 
                 user = cur.fetchone()
 
-                conn.commit()
+            conn.commit()
 
     except psycopg.errors.UniqueViolation:
         raise HTTPException(
             status_code=409,
-            detail="Пользователь с таким email или именем уже существует.",
+            detail="Username or email already exists",
         )
 
-    token = create_session(user[0])
+    user_id, user_username, user_email, created_at = user
+
+    token = create_session(user_id)
 
     return {
+        "ok": True,
         "token": token,
         "user": {
-            "id": user[0],
-            "username": user[1],
-            "email": user[2],
+            "id": user_id,
+            "username": user_username,
+            "email": user_email,
+            "created_at": created_at.isoformat(),
         },
     }
 
 
-# ============================================================
+# =========================
 # LOGIN
-# ============================================================
+# =========================
 
 @app.post("/api/auth/login")
 def login(data: LoginRequest):
-
-    email = data.email.lower().strip()
+    email = str(data.email).strip().lower()
 
     with get_connection() as conn:
         with conn.cursor() as cur:
-
             cur.execute(
                 """
                 SELECT
                     id,
                     username,
                     email,
-                    password_hash
+                    password_hash,
+                    created_at
                 FROM users
                 WHERE email = %s
+                LIMIT 1
                 """,
                 (email,),
             )
@@ -306,94 +334,89 @@ def login(data: LoginRequest):
     if not user:
         raise HTTPException(
             status_code=401,
-            detail="Неверный email или пароль.",
+            detail="Invalid email or password",
         )
+
+    (
+        user_id,
+        username,
+        user_email,
+        password_hash,
+        created_at,
+    ) = user
 
     if not verify_password(
         data.password,
-        user[3],
+        password_hash,
     ):
         raise HTTPException(
             status_code=401,
-            detail="Неверный email или пароль.",
+            detail="Invalid email or password",
         )
 
-    token = create_session(user[0])
+    token = create_session(user_id)
 
     return {
+        "ok": True,
         "token": token,
         "user": {
-            "id": user[0],
-            "username": user[1],
-            "email": user[2],
+            "id": user_id,
+            "username": username,
+            "email": user_email,
+            "created_at": created_at.isoformat(),
         },
     }
 
 
-# ============================================================
-# SESSION CHECK
-# ============================================================
+# =========================
+# CURRENT SESSION
+# =========================
 
 @app.get("/api/auth/session")
-def check_session(
-    authorization: str = Header(default=""),
+def session(
+    authorization: str | None = Header(default=None)
 ):
-
-    if not authorization.startswith("Bearer "):
-        raise HTTPException(
-            status_code=401,
-            detail="Сессия отсутствует.",
-        )
-
-    token = authorization[7:].strip()
-
-    if not token:
-        raise HTTPException(
-            status_code=401,
-            detail="Сессия отсутствует.",
-        )
+    token = extract_bearer_token(authorization)
 
     user = get_user_by_token(token)
 
     if not user:
         raise HTTPException(
             status_code=401,
-            detail="Сессия недействительна.",
+            detail="Session expired or invalid",
         )
+
+    (
+        user_id,
+        username,
+        email,
+        created_at,
+    ) = user
 
     return {
         "ok": True,
         "user": {
-            "id": user[0],
-            "username": user[1],
-            "email": user[2],
+            "id": user_id,
+            "username": username,
+            "email": email,
+            "created_at": created_at.isoformat(),
         },
     }
 
 
-# ============================================================
+# =========================
 # LOGOUT
-# ============================================================
+# =========================
 
 @app.post("/api/auth/logout")
 def logout(
-    authorization: str = Header(default=""),
+    authorization: str | None = Header(default=None)
 ):
-
-    if not authorization.startswith("Bearer "):
-        return {
-            "ok": True,
-        }
-
-    token = authorization[7:].strip()
-
-    token_hash = hashlib.sha256(
-        token.encode("utf-8")
-    ).hexdigest()
+    token = extract_bearer_token(authorization)
+    token_hash = hash_token(token)
 
     with get_connection() as conn:
         with conn.cursor() as cur:
-
             cur.execute(
                 """
                 DELETE FROM sessions
@@ -402,9 +425,8 @@ def logout(
                 (token_hash,),
             )
 
-            conn.commit()
+        conn.commit()
 
     return {
-        "ok": True,
+        "ok": True
     }
-```
