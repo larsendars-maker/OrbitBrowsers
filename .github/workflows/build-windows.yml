@@ -46,17 +46,6 @@ jobs:
             --version-file "$version" `
             "$root\orbit_browser.py"
           if (!(Test-Path "build_out/OrbitBrowser.exe")) { throw "OrbitBrowser.exe not produced" }
-          Copy-Item "build_out/OrbitBrowser.exe" "build_out/OrbitBrowser-Portable.exe" -Force
-
-      - name: Install Inno Setup
-        shell: pwsh
-        run: choco install innosetup -y --no-progress
-
-      - name: Build installer
-        shell: pwsh
-        run: |
-          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "OrbitBrowser.iss"
-          if (!(Test-Path "installer/OrbitBrowser-Setup.exe")) { throw "Installer not produced" }
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
@@ -64,8 +53,6 @@ jobs:
           name: OrbitBrowser-Windows
           path: |
             build_out/OrbitBrowser.exe
-            build_out/OrbitBrowser-Portable.exe
-            installer/OrbitBrowser-Setup.exe
 
       - name: Publish Windows Release
         shell: pwsh
@@ -74,6 +61,6 @@ jobs:
         run: |
           gh release view Windows *> $null
           if ($LASTEXITCODE -ne 0) {
-            gh release create Windows --title "Orbit Browser Windows" --notes "Orbit Browser 2.0 для Windows."
+            gh release create Windows --title "Orbit Browser Windows" --notes "Orbit Browser 2.2 для Windows."
           }
-          gh release upload Windows build_out/OrbitBrowser.exe build_out/OrbitBrowser-Portable.exe installer/OrbitBrowser-Setup.exe --clobber
+          gh release upload Windows build_out/OrbitBrowser.exe --clobber

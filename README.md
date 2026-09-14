@@ -34,7 +34,7 @@ Orbit запускает интерфейс сразу и выполняет с�
 `Ctrl+L`, `Ctrl+T`, `Ctrl+W`, `Ctrl+Shift+T`, `Ctrl+H`, `Ctrl+D`, `Ctrl+J`, `Ctrl+K`, `Alt+Left`, `Alt+Right`.
 
 ### Release
-Windows Actions создаёт обычный EXE, Portable EXE и NSIS/Setup installer. Android Actions создаёт APK и AAB. Отдельный Security workflow проверяет секреты и Python smoke tests.
+Windows Actions создаёт только один `OrbitBrowser.exe`. Android Actions создаёт только один `OrbitBrowser.apk`. Отдельный Security workflow проверяет секреты и Python smoke tests.
 
 ## Orbit 2.0
 

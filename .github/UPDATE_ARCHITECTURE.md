@@ -1,15 +1,14 @@
 # Orbit Browser — обновления
 
 Windows:
-1. Пушится тег `vX.Y.Z`.
-2. GitHub Actions собирает Portable EXE и NSIS/Inno Setup EXE.
-3. Release публикуется в GitHub.
-4. Orbit Browser проверяет `releases/latest`.
-5. Если версия новее, предлагается скачать `OrbitBrowser-Setup.exe`.
+1. GitHub Actions собирает только `OrbitBrowser.exe`.
+2. EXE публикуется в GitHub Release без дублей Portable/Setup.
+3. Orbit Browser проверяет доступную версию в фоне и предлагает обновление.
 
 Android:
-1. Тот же тег собирает APK/AAB.
-2. Файлы прикладываются к GitHub Release.
-3. Пользователь подтверждает установку APK сам, как требует Android.
+1. GitHub Actions собирает только APK.
+2. APK прикладывается к GitHub Release как `OrbitBrowser.apk`.
+3. Приложение раз в 6 часов проверяет `android/VERSION.txt` и может скачать APK обновления.
+4. Android всё равно требует системного подтверждения установки APK; полностью бесшумное обновление без Play Store/управляемого устройства невозможно.
 
 Пользовательские данные Windows лежат в `%LOCALAPPDATA%\\OrbitBrowser` и не должны храниться в папке установки.

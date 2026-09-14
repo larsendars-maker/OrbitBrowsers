@@ -30,10 +30,10 @@ FOUNDER_PASSWORD = os.getenv("ORBIT_FOUNDER_PASSWORD", "")
 ANALYTICS_SECRET = os.getenv("ORBIT_ANALYTICS_SECRET", "").strip() or secrets.token_hex(32)
 DOWNLOAD_URL = os.getenv("ORBIT_DOWNLOAD_URL", "").strip()
 RELEASE_URL = os.getenv("ORBIT_RELEASE_URL", "https://github.com/larsendars-maker/OrbitBrowsers/releases/tag/Windows").strip()
-WINDOWS_DOWNLOAD_URL = os.getenv("ORBIT_WINDOWS_DOWNLOAD_URL", "https://github.com/larsendars-maker/OrbitBrowsers/releases/download/Windows/OrbitBrowser-Setup.exe").strip()
+WINDOWS_DOWNLOAD_URL = os.getenv("ORBIT_WINDOWS_DOWNLOAD_URL", "https://github.com/larsendars-maker/OrbitBrowsers/releases/download/Windows/OrbitBrowser.exe").strip()
 ANDROID_DOWNLOAD_URL = os.getenv("ORBIT_ANDROID_DOWNLOAD_URL", "https://github.com/larsendars-maker/OrbitBrowsers/releases/download/Android/OrbitBrowser.apk").strip()
 DOWNLOAD_VERSION = os.getenv("ORBIT_DOWNLOAD_VERSION", APP_VERSION).strip()
-DOWNLOAD_FILE_NAME = os.getenv("ORBIT_DOWNLOAD_FILE_NAME", "OrbitBrowser-Setup.exe").strip()
+DOWNLOAD_FILE_NAME = os.getenv("ORBIT_DOWNLOAD_FILE_NAME", "OrbitBrowser.exe").strip()
 WEB_ORIGINS = [x.strip() for x in os.getenv("ORBIT_WEB_ORIGINS", "").split(",") if x.strip()]
 SITE_DIR = Path(__file__).resolve().parent.parent / "web"
 
@@ -394,7 +394,7 @@ def startup():
                        VALUES(%s,%s,%s,%s,%s,TRUE)
                        ON CONFLICT(key) DO UPDATE SET name=EXCLUDED.name,version=EXCLUDED.version,
                        file_name=EXCLUDED.file_name,url=EXCLUDED.url,is_active=TRUE""",
-                    ("orbit-browser-windows", "Orbit Browser для Windows", DOWNLOAD_VERSION, "OrbitBrowser-Setup.exe", windows_url))
+                    ("orbit-browser-windows", "Orbit Browser для Windows", DOWNLOAD_VERSION, "OrbitBrowser.exe", windows_url))
         cur.execute("""INSERT INTO download_files(key,name,version,file_name,url,is_active)
                        VALUES(%s,%s,%s,%s,%s,TRUE)
                        ON CONFLICT(key) DO UPDATE SET name=EXCLUDED.name,version=EXCLUDED.version,

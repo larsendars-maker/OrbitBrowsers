@@ -1,4 +1,13 @@
+import java.util.Properties
+
 plugins { id("com.android.application"); id("org.jetbrains.kotlin.android") }
+
+val signingProperties = Properties()
+val signingFile = rootProject.file("signing.properties")
+if (signingFile.exists()) {
+    signingFile.inputStream().use(signingProperties::load)
+}
+
 android {
     namespace = "com.orbit.browser"
     compileSdk = 35
@@ -7,8 +16,8 @@ android {
         applicationId = "com.orbit.browser"
         minSdk = 26
         targetSdk = 35
-        versionCode = 200
-        versionName = "2.0"
+        versionCode = 220
+        versionName = "2.2"
     }
 
     compileOptions {
@@ -20,9 +29,23 @@ android {
         jvmTarget = "17"
     }
 
+    signingConfigs {
+        create("release") {
+            if (signingProperties.isNotEmpty()) {
+                storeFile = rootProject.file(signingProperties.getProperty("storeFile"))
+                storePassword = signingProperties.getProperty("storePassword")
+                keyAlias = signingProperties.getProperty("keyAlias")
+                keyPassword = signingProperties.getProperty("keyPassword")
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
+            if (signingProperties.isNotEmpty()) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
 }

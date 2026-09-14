@@ -8,6 +8,9 @@
 <style>
 :root{--bg:#080a0f;--surface:#101318;--surface2:#171b22;--border:#29303a;--text:#f7f9fc;--muted:#98a2b3;--accent:#8aa4ff}
 *{box-sizing:border-box}html,body{margin:0;min-height:100%;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,"Segoe UI",Arial,sans-serif}body{min-height:100vh}main{min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:28px 14px 26px}.logo{width:60px;height:60px;border-radius:18px;object-fit:cover;margin-top:6px}.brand{font-size:24px;font-weight:900;letter-spacing:3px;margin-top:10px}.welcome{font-size:20px;font-weight:800;text-align:center;margin-top:8px}.future{font-size:9px;letter-spacing:2px;color:var(--muted);text-align:center;margin-top:5px}.search{width:100%;max-width:650px;display:flex;align-items:center;gap:6px;margin-top:20px;padding:5px 6px 5px 12px;background:#15191f;border:1px solid var(--border);border-radius:18px}.search input{min-width:0;flex:1;background:transparent;border:0;outline:0;color:var(--text);font-size:16px;padding:12px 4px}.search input::placeholder{color:#8893a5}.search button{width:44px;height:44px;border:0;border-radius:14px;background:var(--accent);color:#10141b;font-size:21px;font-weight:900}.quick{width:100%;max-width:650px;display:flex;align-items:center;gap:8px;margin-top:12px}.quick-title{font-size:12px;font-weight:800;color:var(--muted);margin-right:auto}.quick button{border:1px solid var(--border);background:var(--surface2);color:var(--text);border-radius:10px;padding:8px 10px;font-weight:700}.grid{width:100%;max-width:650px;display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-top:12px}.card{min-height:62px;padding:12px;border:1px solid var(--border);background:var(--surface);border-radius:14px}.card b{display:block;font-size:13px;margin-bottom:4px}.card span{font-size:11px;line-height:1.3;color:var(--muted)}.status{margin-top:auto;padding-top:16px;color:#667080;font-size:10px;text-align:center}@media(max-width:520px){main{padding:24px 10px 20px}.grid{grid-template-columns:1fr 1fr}.quick{overflow-x:auto}.quick button{flex:none}}
+
+@media(max-width:360px){.logo{width:52px;height:52px;border-radius:15px}.brand{font-size:20px}.welcome{font-size:18px}.future{font-size:8px}.search input{font-size:14px}.search button{width:40px;height:40px}.grid{gap:6px}.card{padding:9px}.card b{font-size:12px}.card span{font-size:10px}}
+@media(orientation:landscape) and (max-height:520px){main{padding-top:10px}.logo{width:42px;height:42px;margin-top:0}.brand{margin-top:4px}.welcome{margin-top:4px}.search{margin-top:9px}.grid{margin-top:8px}.status{padding-top:8px}}
 </style>
 </head>
 <body>
@@ -38,9 +41,10 @@ function go(e){
  e.preventDefault();
  const q=document.getElementById('q').value.trim();
  if(!q)return;
- if(q.startsWith('http://')||q.startsWith('https://')) location.href=q;
+ if(/^https?:\/\//i.test(q)) location.href=q;
  else if(q.startsWith('file:///android_asset/')) location.href=q;
- else if(q.includes('.')&&!q.includes(' ')) location.href='https://'+q;
+ else if(/^(www\.)/i.test(q)) location.href='https://'+q;
+ else if(/^[^\s]+\.[^\s]+$/.test(q)) location.href='https://'+q;
  else location.href='https://www.google.com/search?q='+encodeURIComponent(q);
 }
 </script>

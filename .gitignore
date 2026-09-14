@@ -31,3 +31,5 @@ data/orbit.db
 data/orbit.db-*
 data/storage_migration.json
 OrbitBrowser/
+android/signing.properties
+android/*.keystore

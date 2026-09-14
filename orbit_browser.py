@@ -365,7 +365,7 @@ class OrbitBrowser(QMainWindow):
         if os.path.exists(icon_path):
             self.setWindowIcon(QIcon(icon_path))
         self.resize(1500, 920)
-        self.setMinimumSize(1100, 700)
+        self.setMinimumSize(900, 600)
         self.config["stats_sessions"] = int(self.config.get("stats_sessions", 0)) + 1
         save_config(self.config)
         if isinstance(self.user, dict):
@@ -396,6 +396,8 @@ class OrbitBrowser(QMainWindow):
         sidebar = QFrame()
         sidebar.setObjectName("sidebar")
         self.sidebar = sidebar
+        sidebar.setMinimumWidth(176)
+        sidebar.setMaximumWidth(208)
         sidebar.setFixedWidth(208)
         side = QVBoxLayout(sidebar)
         side.setContentsMargins(14, 16, 14, 16)
@@ -586,7 +588,7 @@ class OrbitBrowser(QMainWindow):
             self.sidebar_toggle_button.setToolTip("Показать боковую панель")
         else:
             self.sidebar.show()
-            self.sidebar.setMinimumWidth(208)
+            self.sidebar.setMinimumWidth(176)
             self.sidebar.setMaximumWidth(208)
             self.config["sidebar_hidden"] = False
             self.sidebar_toggle_button.setText("☰")
@@ -889,9 +891,21 @@ class OrbitBrowser(QMainWindow):
         )
 
     def resizeEvent(self, event):
+        width = self.width()
+        compact = width < 1180
+        very_compact = width < 1000
+        if hasattr(self, "sidebar") and not self.config.get("sidebar_hidden", False):
+            target = 176 if compact else 208
+            self.sidebar.setMinimumWidth(target)
+            self.sidebar.setMaximumWidth(target)
+        if hasattr(self, "sidebar_toggle_button"):
+            size = 38 if very_compact else 42
+            self.sidebar_toggle_button.setMinimumSize(size, size)
+            self.sidebar_toggle_button.setMaximumSize(size, size)
+        if hasattr(self, "top_profile_button"):
+            self.top_profile_button.setMinimumWidth(110 if very_compact else 130)
+            self.top_profile_button.setMaximumWidth(150 if very_compact else 190)
         super().resizeEvent(event)
-        QTimer.singleShot(0, self.update_tab_widths)
-
 
     def execute_command(self, text):
         command = str(text or "").strip()
@@ -1251,7 +1265,7 @@ class OrbitBrowser(QMainWindow):
             tag = str(release.get("tag_name", "")).lstrip("v")
             if not tag or self._version_tuple(tag) <= self._version_tuple(APP_VERSION):
                 return
-            asset = next((a for a in release.get("assets", []) if a.get("name") == "OrbitBrowser-Setup.exe"), None)
+            asset = next((a for a in release.get("assets", []) if a.get("name") == "OrbitBrowser.exe"), None)
             if not asset:
                 return
             answer = QMessageBox.question(
@@ -1275,7 +1289,7 @@ class OrbitBrowser(QMainWindow):
         progress.show()
         QApplication.processEvents()
         temp_dir = tempfile.mkdtemp(prefix="orbit_update_")
-        installer = os.path.join(temp_dir, "OrbitBrowser-Setup.exe")
+        installer = os.path.join(temp_dir, "OrbitBrowser-new.exe")
         try:
             with requests.get(url, stream=True, timeout=30, headers={"Accept": "application/octet-stream"}) as r:
                 r.raise_for_status()
@@ -1294,10 +1308,29 @@ class OrbitBrowser(QMainWindow):
                                 progress.setLabelText(f"Скачивание {done // 1024 // 1024} / {total // 1024 // 1024} МБ…")
                             QApplication.processEvents()
             progress.setValue(100)
-            progress.setLabelText(f"Запуск установщика Orbit Browser {version}…")
+            progress.setLabelText(f"Подготовка обновления Orbit Browser {version}…")
             QApplication.processEvents()
-            subprocess.Popen([installer], close_fds=True)
-            QTimer.singleShot(300, QApplication.instance().quit)
+            current_exe = os.path.abspath(sys.executable if getattr(sys, "frozen", False) else sys.argv[0])
+            updater = os.path.join(temp_dir, "orbit_apply_update.cmd")
+            pid = os.getpid()
+            script = "\n".join([
+                "@echo off",
+                "setlocal",
+                f"set PID={pid}",
+                f"set NEW={installer}",
+                f"set TARGET={current_exe}",
+                ":wait",
+                'tasklist /FI "PID eq %PID%" | find "%PID%" >nul',
+                'if not errorlevel 1 (timeout /t 1 /nobreak >nul & goto wait)',
+                'copy /Y "%NEW%" "%TARGET%" >nul',
+                'start "" "%TARGET%"',
+                'del "%NEW%" >nul 2>nul',
+                'del "%~f0" >nul 2>nul',
+            ])
+            with open(updater, "w", encoding="utf-8") as f:
+                f.write(script)
+            subprocess.Popen(["cmd", "/c", updater], creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0), close_fds=True)
+            QTimer.singleShot(250, QApplication.instance().quit)
         except Exception as exc:
             progress.close()
             QMessageBox.warning(self, "Не удалось обновить Orbit", str(exc))

@@ -56,41 +56,162 @@ from orbit_ui import THEMES, fade_in, tr
 class LoginPage(QWidget):
     def __init__(self, browser):
         super().__init__()
-        self.browser=browser
-        layout=QVBoxLayout(self)
-        layout.setContentsMargins(80,70,80,70)
-        title=QLabel("Orbit Account")
+        self.browser = browser
+        self.mode = "login"
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(24, 20, 24, 20)
+        outer.setSpacing(0)
+        outer.addStretch(1)
+
+        card = QFrame()
+        card.setObjectName("authCard")
+        card.setMaximumWidth(560)
+        card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(30, 28, 30, 28)
+        layout.setSpacing(12)
+
+        title = QLabel("Orbit Account")
         title.setObjectName("pageTitle")
         layout.addWidget(title)
-        info=QLabel("Войдите или создайте аккаунт. Окно регистрации открывается внутри Orbit, без внешнего браузера.")
-        info.setWordWrap(True); info.setObjectName("muted"); layout.addWidget(info)
-        self.email=QLineEdit(); self.email.setPlaceholderText("Email"); layout.addWidget(self.email)
-        self.password=QLineEdit(); self.password.setPlaceholderText("Пароль"); self.password.setEchoMode(QLineEdit.EchoMode.Password); layout.addWidget(self.password)
-        self.username=QLineEdit(); self.username.setPlaceholderText("Имя пользователя — только для регистрации"); layout.addWidget(self.username)
-        row=QHBoxLayout()
-        login=QPushButton("Войти"); login.setProperty("accent",True); register=QPushButton("Создать аккаунт")
-        row.addWidget(login); row.addWidget(register); layout.addLayout(row)
-        self.status=QLabel(""); self.status.setWordWrap(True); self.status.setObjectName("muted"); layout.addWidget(self.status); layout.addStretch()
-        login.clicked.connect(self.login); register.clicked.connect(self.register)
+        self.info = QLabel("Войдите в аккаунт или создайте новый. Все данные синхронизируются между ПК и телефоном.")
+        self.info.setWordWrap(True)
+        self.info.setObjectName("muted")
+        layout.addWidget(self.info)
+
+        toggle = QHBoxLayout()
+        self.login_tab = QPushButton("Войти")
+        self.register_tab = QPushButton("Регистрация")
+        self.login_tab.clicked.connect(lambda: self.set_mode("login"))
+        self.register_tab.clicked.connect(lambda: self.set_mode("register"))
+        toggle.addWidget(self.login_tab)
+        toggle.addWidget(self.register_tab)
+        layout.addLayout(toggle)
+
+        self.email = QLineEdit()
+        self.email.setPlaceholderText("Email")
+        self.email.setClearButtonEnabled(True)
+        layout.addWidget(self.email)
+
+        self.password = QLineEdit()
+        self.password.setPlaceholderText("Пароль")
+        self.password.setEchoMode(QLineEdit.EchoMode.Password)
+        self.password.setClearButtonEnabled(True)
+        layout.addWidget(self.password)
+
+        self.username = QLineEdit()
+        self.username.setPlaceholderText("Имя пользователя")
+        self.username.setClearButtonEnabled(True)
+        layout.addWidget(self.username)
+
+        self.action = QPushButton("Войти")
+        self.action.setProperty("accent", True)
+        self.action.clicked.connect(self.submit)
+        layout.addWidget(self.action)
+
+        self.status = QLabel("")
+        self.status.setWordWrap(True)
+        self.status.setObjectName("muted")
+        layout.addWidget(self.status)
+        outer.addWidget(card, 0, Qt.AlignmentFlag.AlignHCenter)
+        outer.addStretch(1)
+
+        self.setStyleSheet("""
+            QFrame#authCard { border-radius: 18px; }
+        """)
+        self.set_mode("login")
         fade_in(self)
 
-    def login(self):
-        email=self.email.text().strip(); password=self.password.text()
-        if not email or not password: self.status.setText("Введите email и пароль."); return
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        compact = self.width() < 620
+        margins = 18 if compact else 30
+        card = self.findChild(QFrame, "authCard")
+        if card:
+            card.layout().setContentsMargins(margins, margins, margins, margins)
+        for field in (self.email, self.password, self.username):
+            field.setMinimumHeight(46 if compact else 50)
+        self.action.setMinimumHeight(46 if compact else 50)
+
+    def set_mode(self, mode):
+        self.mode = mode
+        register = mode == "register"
+        self.username.setVisible(register)
+        self.action.setText("Создать аккаунт" if register else "Войти")
+        self.login_tab.setProperty("accent", not register)
+        self.register_tab.setProperty("accent", register)
+        self.login_tab.style().unpolish(self.login_tab); self.login_tab.style().polish(self.login_tab)
+        self.register_tab.style().unpolish(self.register_tab); self.register_tab.style().polish(self.register_tab)
+        self.status.clear()
+
+    def submit(self):
+        if self.mode == "register":
+            self.register()
+        else:
+            self.login()
+
+    @staticmethod
+    def _error_text(response):
         try:
-            r=requests.post(f"{self.browser.API_URL}/api/auth/login",json={"email":email,"password":password},timeout=12)
-            if r.status_code>=400: self.status.setText(r.text[:300]); return
-            data=r.json(); self.browser.set_session(data.get("token"),data.get("user")); self.browser.show_home_screen()
-        except Exception as exc: self.status.setText(f"Ошибка соединения: {exc}")
+            data = response.json()
+            detail = data.get("detail", "") if isinstance(data, dict) else ""
+            if isinstance(detail, list):
+                return "; ".join(str(x.get("msg", "Ошибка")) for x in detail if isinstance(x, dict)) or "Проверьте данные."
+            return str(detail or "Ошибка запроса")
+        except Exception:
+            return (response.text or "Ошибка запроса")[:240]
+
+    def login(self):
+        email = self.email.text().strip()
+        password = self.password.text()
+        if not email or not password:
+            self.status.setText("Введите email и пароль.")
+            self.email.setFocus()
+            return
+        self.action.setEnabled(False)
+        self.status.setText("Выполняется вход…")
+        try:
+            r = requests.post(f"{self.browser.API_URL}/api/auth/login", json={"email": email, "password": password}, timeout=10)
+            if r.status_code >= 400:
+                self.status.setText(self._error_text(r)); return
+            data = r.json()
+            self.browser.set_session(data.get("token"), data.get("user"))
+            self.browser.show_home_screen()
+        except requests.RequestException:
+            self.status.setText("Orbit API временно недоступен. Проверьте интернет и попробуйте снова.")
+        except Exception:
+            self.status.setText("Не удалось выполнить вход.")
+        finally:
+            self.action.setEnabled(True)
 
     def register(self):
-        username=self.username.text().strip(); email=self.email.text().strip(); password=self.password.text()
-        if not username or not email or len(password)<8: self.status.setText("Для регистрации нужны имя, email и пароль минимум 8 символов."); return
+        username = self.username.text().strip()
+        email = self.email.text().strip()
+        password = self.password.text()
+        if not 3 <= len(username) <= 32:
+            self.status.setText("Имя пользователя должно содержать от 3 до 32 символов.")
+            return
+        if "@" not in email or "." not in email.split("@")[-1]:
+            self.status.setText("Введите корректный email.")
+            return
+        if len(password) < 8:
+            self.status.setText("Пароль должен содержать минимум 8 символов.")
+            return
+        self.action.setEnabled(False)
+        self.status.setText("Создаём аккаунт…")
         try:
-            r=requests.post(f"{self.browser.API_URL}/api/auth/register",json={"username":username,"email":email,"password":password},timeout=12)
-            if r.status_code>=400: self.status.setText(r.text[:300]); return
-            data=r.json(); self.browser.set_session(data.get("token"),data.get("user")); self.browser.show_home_screen()
-        except Exception as exc: self.status.setText(f"Ошибка соединения: {exc}")
+            r = requests.post(f"{self.browser.API_URL}/api/auth/register", json={"username": username, "email": email, "password": password}, timeout=10)
+            if r.status_code >= 400:
+                self.status.setText(self._error_text(r)); return
+            data = r.json()
+            self.browser.set_session(data.get("token"), data.get("user"))
+            self.browser.show_home_screen()
+        except requests.RequestException:
+            self.status.setText("Не удалось подключиться к Orbit. Проверьте интернет и попробуйте ещё раз.")
+        except Exception:
+            self.status.setText("Не удалось создать аккаунт.")
+        finally:
+            self.action.setEnabled(True)
 
 class AddShortcutDialog(QDialog):
     def __init__(self, parent=None):
@@ -349,7 +470,7 @@ class HomePage(QWidget):
 
         go = QPushButton("→")
         go.setObjectName("searchButton")
-        go.setFixedSize(46, 46)
+        go.setMinimumSize(42, 42); go.setMaximumSize(50, 50)
         go.setProperty("accent", True)
         search_row.addWidget(go)
 
@@ -1077,7 +1198,9 @@ class ProfilePage(QWidget):
         self.avatar = QLabel()
         self.avatar.setObjectName("profileAvatar")
         self.avatar.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.avatar.setFixedSize(96, 96)
+        self.avatar.setMinimumSize(72, 72)
+        self.avatar.setMaximumSize(112, 112)
+        self.avatar.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         self.refresh_avatar()
         return self.avatar
 
@@ -1257,7 +1380,7 @@ class EditProfileDialog(QDialog):
         super().__init__(browser); self.browser=browser; self.setWindowTitle("Настройка профиля Orbit"); self.setMinimumWidth(580)
         layout=QVBoxLayout(self); layout.setSpacing(14)
         avatar_row=QHBoxLayout()
-        self.avatar_preview=QLabel(); self.avatar_preview.setObjectName("profileAvatar"); self.avatar_preview.setFixedSize(82,82); self.avatar_preview.setAlignment(Qt.AlignmentFlag.AlignCenter); avatar_row.addWidget(self.avatar_preview)
+        self.avatar_preview=QLabel(); self.avatar_preview.setObjectName("profileAvatar"); self.avatar_preview.setMinimumSize(64,64); self.avatar_preview.setMaximumSize(96,96); self.avatar_preview.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed); self.avatar_preview.setAlignment(Qt.AlignmentFlag.AlignCenter); avatar_row.addWidget(self.avatar_preview)
         avatar_col=QVBoxLayout();
         btn=QPushButton("Изменить фотографию"); btn.clicked.connect(self.choose_avatar); avatar_col.addWidget(btn)
         note=QLabel("JPG, PNG или WEBP • хранится локально на этом компьютере"); note.setObjectName("muted"); note.setWordWrap(True); avatar_col.addWidget(note); avatar_row.addLayout(avatar_col); avatar_row.addStretch(); layout.addLayout(avatar_row)

@@ -2,6 +2,10 @@ package com.orbit.browser
 
 import android.annotation.SuppressLint
 import android.app.DownloadManager
+import android.app.Dialog
+import android.content.Intent
+import android.content.IntentFilter
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.graphics.Color
 import android.graphics.Typeface
@@ -11,6 +15,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.provider.Settings
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -37,11 +42,14 @@ import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
+import java.util.Locale
 import java.util.concurrent.Executors
 
 class MainActivity : ComponentActivity() {
     private val api = "https://orbit-api-9uqa.onrender.com"
-    private val appVersion = "1.12"
+    private val appVersion = "2.2"
+    private val githubVersionUrl = "https://raw.githubusercontent.com/larsendars-maker/OrbitBrowsers/main/android/VERSION.txt"
+    private val githubApkUrl = "https://github.com/larsendars-maker/OrbitBrowsers/releases/download/Android/OrbitBrowser.apk"
     private val orbitBg = Color.rgb(5, 7, 18)
     private val orbitSurface = Color.rgb(11, 16, 35)
     private val orbitSurface2 = Color.rgb(19, 26, 53)
@@ -66,6 +74,22 @@ class MainActivity : ComponentActivity() {
     private val handler = Handler(Looper.getMainLooper())
     private var user: JSONObject? = null
     private var token: String? = null
+    private var pendingUpdateUri: Uri? = null
+    private val updateReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            if (intent.action != DownloadManager.ACTION_DOWNLOAD_COMPLETE) return
+            val id = intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1L)
+            if (id != lastUpdateDownloadId) return
+            val manager = getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+            val uri = manager.getUriForDownloadedFile(id) ?: run {
+                notifyUser("Обновление", "Не удалось получить скачанный APK", 4200)
+                return
+            }
+            pendingUpdateUri = uri
+            notifyUser("Обновление готово", "APK скачан. Откройте уведомление или нажмите «Установить» в разделе обновлений.", 7000)
+        }
+    }
+    private var lastUpdateDownloadId = -1L
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -73,9 +97,10 @@ class MainActivity : ComponentActivity() {
         loadStoredProfile()
         interfaceVariant = prefs.getString("interface_variant", "BASE") ?: "BASE"
         buildUi()
+        registerUpdateReceiver()
         showWelcome()
         addTab("file:///android_asset/orbit_home.html")
-        handler.postDelayed({ sync(false) }, 1800)
+        handler.postDelayed({ sync(false); checkForUpdate(false) }, 2200)
         handler.postDelayed(object : Runnable {
             override fun run() {
                 sync(false)
@@ -95,6 +120,19 @@ class MainActivity : ComponentActivity() {
         if (!raw.isNullOrBlank()) {
             user = runCatching { JSONObject(raw) }.getOrNull()
         }
+    }
+
+    private fun screenWidthDp(): Float = resources.displayMetrics.widthPixels / resources.displayMetrics.density
+
+    private fun adaptiveDp(base: Int, min: Int = 0, max: Int = Int.MAX_VALUE): Int {
+        val width = screenWidthDp()
+        val factor = when {
+            width < 340f -> 0.86f
+            width < 400f -> 0.94f
+            width < 600f -> 1.0f
+            else -> 1.08f
+        }
+        return (base * factor).toInt().coerceIn(if (min == 0) base / 2 else min, max)
     }
 
     private fun buildUi() {
@@ -125,22 +163,24 @@ class MainActivity : ComponentActivity() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
-        bar.addView(topButton("‹") { currentWeb()?.goBack() }, LinearLayout.LayoutParams(42, 46))
-        bar.addView(topButton("›") { currentWeb()?.goForward() }, LinearLayout.LayoutParams(42, 46))
-        bar.addView(topButton("↻") { currentWeb()?.reload() }, LinearLayout.LayoutParams(42, 46))
+        val iconSize = adaptiveDp(44, 38, 52)
+        val barHeight = adaptiveDp(46, 42, 54)
+        bar.addView(topButton("‹") { currentWeb()?.goBack() }, LinearLayout.LayoutParams(iconSize, barHeight))
+        bar.addView(topButton("›") { currentWeb()?.goForward() }, LinearLayout.LayoutParams(iconSize, barHeight))
+        bar.addView(topButton("↻") { currentWeb()?.reload() }, LinearLayout.LayoutParams(iconSize, barHeight))
 
         address = EditText(this).apply {
             hint = "Поиск в Orbit или адрес"
             setHintTextColor(orbitMuted)
             setTextColor(orbitTextColor)
-            textSize = 15f
+            textSize = if (screenWidthDp() < 340f) 13f else if (screenWidthDp() < 390f) 14f else 15f
             setSingleLine(true)
-            setPadding(16, 0, 16, 0)
+            setPadding(adaptiveDp(16, 10, 20), 0, adaptiveDp(16, 10, 20), 0)
             setBackgroundColor(orbitSurface2)
             setOnEditorActionListener { _, _, _ -> navigate(); true }
         }
-        bar.addView(address, LinearLayout.LayoutParams(0, 46, 1f))
-        bar.addView(topButton("●") { showProfile() }, LinearLayout.LayoutParams(42, 46))
+        bar.addView(address, LinearLayout.LayoutParams(0, barHeight, 1f))
+        bar.addView(topButton("●") { showProfile() }, LinearLayout.LayoutParams(iconSize, barHeight))
         top.addView(bar)
 
         pageTitle = TextView(this).apply { visibility = View.GONE }
@@ -163,7 +203,7 @@ class MainActivity : ComponentActivity() {
             "●" to { showProfile() }
         )
         items.forEach { (label, action) ->
-            bottomNav.addView(navItem(label, action), LinearLayout.LayoutParams(0, 54, 1f))
+            bottomNav.addView(navItem(label, action), LinearLayout.LayoutParams(0, adaptiveDp(52, 46, 62), 1f))
         }
         root.addView(bottomNav)
     }
@@ -205,7 +245,7 @@ class MainActivity : ComponentActivity() {
 
     private fun topButton(label: String, action: () -> Unit): TextView = TextView(this).apply {
         text = label
-        textSize = 20f
+        textSize = if (screenWidthDp() < 360f) 18f else 20f
         gravity = Gravity.CENTER
         setTextColor(orbitTextColor)
         setOnClickListener { action() }
@@ -213,7 +253,7 @@ class MainActivity : ComponentActivity() {
 
     private fun navItem(label: String, action: () -> Unit): TextView = TextView(this).apply {
         text = label
-        textSize = 21f
+        textSize = if (screenWidthDp() < 340f) 18f else if (screenWidthDp() < 390f) 20f else 21f
         gravity = Gravity.CENTER
         setTextColor(orbitMuted)
         setOnClickListener { action() }
@@ -255,8 +295,9 @@ class MainActivity : ComponentActivity() {
             javaScriptEnabled = true
             domStorageEnabled = true
             databaseEnabled = false
-            cacheMode = WebSettings.LOAD_DEFAULT
+            cacheMode = WebSettings.LOAD_CACHE_ELSE_NETWORK
             loadsImagesAutomatically = true
+            offscreenPreRaster = true
             blockNetworkLoads = false
             mediaPlaybackRequiresUserGesture = true
             builtInZoomControls = false
@@ -452,6 +493,10 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun showProfile() {
+        if (user == null || token.isNullOrBlank()) {
+            showAuthDialog()
+            return
+        }
         val scroll = ScrollView(this)
         val panel = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(24, 28, 24, 24); setBackgroundColor(orbitBg) }
         val displayName = user?.optString("display_name").orEmpty().ifBlank { user?.optString("username").orEmpty() }
@@ -509,12 +554,98 @@ class MainActivity : ComponentActivity() {
             panel.addView(variants)
             panel.addView(Button(this).apply { text = "Сохранить профиль"; setOnClickListener { saveProfile(display.text.toString(), bio.text.toString()) } })
             panel.addView(TextView(this).apply { text = "Синхронизация · в фоне"; setTextColor(orbitAccent2); setPadding(0, 16, 0, 10) })
+            panel.addView(Button(this).apply { text = "Проверить обновление"; setOnClickListener { checkForUpdate(true) } })
             panel.addView(Button(this).apply { text = "Выйти"; setOnClickListener { prefs.edit().clear().apply(); token = null; user = null; showHome() } })
         }
         panel.addView(Button(this).apply { text = "← Orbit"; setOnClickListener { showHome() } })
         scroll.addView(panel)
         content.removeAllViews()
         content.addView(scroll, FrameLayout.LayoutParams(-1, -1))
+    }
+
+    private fun showAuthDialog() {
+        val dialog = Dialog(this)
+        dialog.window?.setBackgroundDrawableResource(android.R.color.transparent)
+        val scroll = ScrollView(this).apply { isFillViewport = true }
+        val card = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(adaptiveDp(22, 16, 30), adaptiveDp(22, 16, 30), adaptiveDp(22, 16, 30), adaptiveDp(22, 16, 30))
+            setBackgroundColor(orbitSurface)
+        }
+        val title = TextView(this).apply {
+            text = "Orbit Account"
+            textSize = if (screenWidthDp() < 360f) 24f else 28f
+            setTextColor(orbitTextColor)
+            typeface = Typeface.DEFAULT_BOLD
+        }
+        card.addView(title, LinearLayout.LayoutParams(-1, ViewGroup.LayoutParams.WRAP_CONTENT))
+        card.addView(TextView(this).apply {
+            text = "Войдите или создайте аккаунт. Данные синхронизируются между устройствами."
+            textSize = if (screenWidthDp() < 360f) 13f else 14f
+            setTextColor(orbitMuted)
+            setPadding(0, 8, 0, 16)
+        })
+
+        val tabs = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        val loginTab = Button(this).apply { text = "Войти" }
+        val registerTab = Button(this).apply { text = "Регистрация" }
+        tabs.addView(loginTab, LinearLayout.LayoutParams(0, adaptiveDp(48, 44, 54), 1f))
+        tabs.addView(registerTab, LinearLayout.LayoutParams(0, adaptiveDp(48, 44, 54), 1f))
+        card.addView(tabs)
+
+        val email = field("Email")
+        email.setSingleLine(true)
+        val password = field("Пароль")
+        password.setSingleLine(true)
+        password.inputType = 0x81
+        val username = field("Имя пользователя")
+        username.setSingleLine(true)
+        card.addView(email); card.addView(password); card.addView(username)
+
+        val action = Button(this).apply { text = "Войти" }
+        card.addView(action, LinearLayout.LayoutParams(-1, adaptiveDp(50, 46, 56)))
+        val status = TextView(this).apply { setTextColor(orbitMuted); setPadding(0, 10, 0, 0) }
+        card.addView(status)
+
+        fun setMode(register: Boolean) {
+            username.visibility = if (register) View.VISIBLE else View.GONE
+            action.text = if (register) "Создать аккаунт" else "Войти"
+            status.text = ""
+        }
+        setMode(false)
+        loginTab.setOnClickListener { setMode(false) }
+        registerTab.setOnClickListener { setMode(true) }
+        action.setOnClickListener {
+            val register = username.visibility == View.VISIBLE
+            val e = email.text.toString().trim()
+            val pass = password.text.toString()
+            val name = username.text.toString().trim()
+            if (!e.contains("@") || !e.substringAfterLast("@", "").contains(".")) { status.text = "Введите корректный email."; return@setOnClickListener }
+            if (pass.length < 8) { status.text = "Пароль должен содержать минимум 8 символов."; return@setOnClickListener }
+            if (register && (name.length !in 3..32)) { status.text = "Имя пользователя: от 3 до 32 символов."; return@setOnClickListener }
+            action.isEnabled = false
+            status.text = if (register) "Создаём аккаунт…" else "Выполняется вход…"
+            auth(register, e, pass, name, {
+                dialog.dismiss()
+                showProfile()
+                sync(true)
+            }, { message ->
+                action.isEnabled = true
+                status.text = message
+            })
+        }
+
+        scroll.addView(card)
+        dialog.setContentView(scroll)
+        dialog.setOnShowListener {
+            val width = (resources.displayMetrics.widthPixels * 0.92f).toInt().coerceAtMost((520 * resources.displayMetrics.density).toInt())
+            dialog.window?.setLayout(width, ViewGroup.LayoutParams.WRAP_CONTENT)
+        }
+        dialog.show()
+        dialog.window?.setLayout(
+            (resources.displayMetrics.widthPixels * 0.92f).toInt().coerceAtMost((520 * resources.displayMetrics.density).toInt()),
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        )
     }
 
     private fun field(hint: String, value: String = "") = EditText(this).apply {
@@ -527,6 +658,93 @@ class MainActivity : ComponentActivity() {
         setPadding(16, 10, 16, 10)
     }
 
+    private fun registerUpdateReceiver() {
+        val filter = IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE)
+        registerReceiver(updateReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+    }
+
+    private fun compareVersions(a: String, b: String): Int {
+        fun parts(v: String) = v.trim().removePrefix("v").split(".").map { it.toIntOrNull() ?: 0 }
+        val av = parts(a)
+        val bv = parts(b)
+        for (i in 0 until maxOf(av.size, bv.size)) {
+            val x = av.getOrElse(i) { 0 }
+            val y = bv.getOrElse(i) { 0 }
+            if (x != y) return x.compareTo(y)
+        }
+        return 0
+    }
+
+    private fun checkForUpdate(manual: Boolean) {
+        if (!isOnline()) {
+            if (manual) notifyUser("Обновление", "Нет подключения к интернету")
+            return
+        }
+        if (!manual) {
+            val last = prefs.getLong("update_check_at", 0L)
+            if (System.currentTimeMillis() - last < 6 * 60 * 60 * 1000L) return
+        }
+        prefs.edit().putLong("update_check_at", System.currentTimeMillis()).apply()
+        executor.execute {
+            runCatching {
+                val connection = URL(githubVersionUrl).openConnection() as HttpURLConnection
+                connection.connectTimeout = 1800
+                connection.readTimeout = 2500
+                connection.requestMethod = "GET"
+                if (connection.responseCode !in 200..299) throw IllegalStateException("HTTP ${connection.responseCode}")
+                connection.inputStream.bufferedReader().use { it.readText().trim() }
+            }.onSuccess { remote ->
+                runOnUiThread {
+                    when {
+                        remote.isBlank() -> if (manual) notifyUser("Обновление", "Версия не найдена")
+                        compareVersions(remote, appVersion) > 0 -> promptUpdate(remote)
+                        manual -> notifyUser("Orbit Browser", "У тебя уже последняя версия $appVersion")
+                    }
+                }
+            }.onFailure {
+                if (manual) runOnUiThread { notifyUser("Обновление", "Не удалось проверить новую версию") }
+            }
+        }
+    }
+
+    private fun promptUpdate(remoteVersion: String) {
+        notifyUser("Доступно обновление", "Orbit Browser $remoteVersion • скачиваю APK…", 5000)
+        downloadUpdate(remoteVersion)
+    }
+
+    private fun downloadUpdate(version: String) {
+        runCatching {
+            val fileName = "OrbitBrowser-$version.apk"
+            val request = DownloadManager.Request(Uri.parse(githubApkUrl))
+                .setTitle("Orbit Browser $version")
+                .setDescription("Обновление Orbit Browser")
+                .setMimeType("application/vnd.android.package-archive")
+                .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                .setDestinationInExternalPublicDir(android.os.Environment.DIRECTORY_DOWNLOADS, fileName)
+            lastUpdateDownloadId = (getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager).enqueue(request)
+        }.onFailure {
+            notifyUser("Обновление", "Не удалось начать скачивание", 4200)
+        }
+    }
+
+    private fun installDownloadedApk(uri: Uri) {
+        runCatching {
+            if (android.os.Build.VERSION.SDK_INT >= 26 && !packageManager.canRequestPackageInstalls()) {
+                val settingsIntent = Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:$packageName"))
+                startActivity(settingsIntent)
+                notifyUser("Разрешение требуется", "Разреши установку из этого источника и открой скачанный APK")
+                return
+            }
+            val intent = Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(uri, "application/vnd.android.package-archive")
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            startActivity(intent)
+        }.onFailure {
+            notifyUser("Обновление", "Открой скачанный APK из папки Downloads", 4200)
+        }
+    }
+
     private fun isOnline(): Boolean {
         val manager = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
         val network = manager.activeNetwork ?: return false
@@ -534,7 +752,7 @@ class MainActivity : ComponentActivity() {
         return caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
     }
 
-    private fun auth(register: Boolean, email: String, password: String, username: String) {
+    private fun auth(register: Boolean, email: String, password: String, username: String, onSuccess: (() -> Unit)? = null, onError: ((String) -> Unit)? = null) {
         executor.execute {
             runCatching {
                 val body = JSONObject().put("email", email).put("password", password)
@@ -544,10 +762,27 @@ class MainActivity : ComponentActivity() {
                 token = result.optString("token").takeIf { it.isNotBlank() }
                 user = result.optJSONObject("user")
                 prefs.edit().putString("token", token).putString("profile", user?.toString()).apply()
-                runOnUiThread { showProfile(); sync(true) }
+                runOnUiThread { onSuccess?.invoke() ?: run { showProfile(); sync(true) } }
             }.onFailure { error ->
-                runOnUiThread { notifyUser("Ошибка входа", error.message ?: "Неизвестная ошибка", 4200) }
+                runOnUiThread {
+                    val message = friendlyAuthError(error)
+                    onError?.invoke(message)
+                    if (onError == null) notifyUser("Ошибка входа", message, 4200)
+                }
             }
+        }
+    }
+
+    private fun friendlyAuthError(error: Throwable): String {
+        val raw = error.message.orEmpty()
+        val detail = runCatching { JSONObject(raw).optString("detail") }.getOrNull().orEmpty()
+        return when {
+            raw.contains("409") || detail.contains("already exists", ignoreCase = true) -> "Этот email или логин уже зарегистрирован."
+            raw.contains("401") || detail.contains("Invalid email or password", ignoreCase = true) -> "Неверный email или пароль."
+            raw.contains("400") || detail.contains("Password must", ignoreCase = true) -> "Проверьте введённые данные."
+            raw.contains("403") || detail.contains("reserved", ignoreCase = true) -> "Это имя пользователя зарезервировано."
+            raw.contains("503") -> "Сервис временно недоступен. Попробуйте позже."
+            else -> "Не удалось выполнить запрос. Проверьте интернет."
         }
     }
 
@@ -630,6 +865,7 @@ class MainActivity : ComponentActivity() {
         handler.removeCallbacksAndMessages(null)
         tabs.forEach { it.stopLoading(); it.destroy() }
         executor.shutdownNow()
+        runCatching { unregisterReceiver(updateReceiver) }
         super.onDestroy()
     }
 }

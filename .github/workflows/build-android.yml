@@ -41,16 +41,37 @@ jobs:
           test -f android/app/build.gradle.kts
           test -f android/gradle.properties
 
-      - name: Build APK and AAB
+      - name: Configure signing
+        shell: bash
+        env:
+          ORBIT_KEYSTORE_B64: ${{ secrets.ORBIT_ANDROID_KEYSTORE_B64 }}
+          ORBIT_STORE_PASSWORD: ${{ secrets.ORBIT_ANDROID_STORE_PASSWORD }}
+          ORBIT_KEY_ALIAS: ${{ secrets.ORBIT_ANDROID_KEY_ALIAS }}
+          ORBIT_KEY_PASSWORD: ${{ secrets.ORBIT_ANDROID_KEY_PASSWORD }}
+        run: |
+          if [ -n "$ORBIT_KEYSTORE_B64" ]; then
+            echo "$ORBIT_KEYSTORE_B64" | base64 --decode > android/orbit-release.keystore
+            cat > android/signing.properties <<EOF
+storeFile=orbit-release.keystore
+storePassword=$ORBIT_STORE_PASSWORD
+keyAlias=$ORBIT_KEY_ALIAS
+keyPassword=$ORBIT_KEY_PASSWORD
+EOF
+            echo "ORBIT_SIGNING_READY=true" >> "$GITHUB_ENV"
+          else
+            echo "ORBIT_SIGNING_READY=false" >> "$GITHUB_ENV"
+            echo "No Android signing secrets configured; release APK will not be published as an update build."
+          fi
+
+      - name: Build APK
         working-directory: android
-        run: gradle clean assembleDebug bundleRelease --stacktrace --console=plain --no-daemon
+        run: gradle clean assembleRelease --stacktrace --console=plain --no-daemon
 
       - name: Prepare files
         run: |
           mkdir -p output
-          cp android/app/build/outputs/apk/debug/app-debug.apk output/OrbitBrowser.apk
-          cp android/app/build/outputs/bundle/release/app-release.aab output/OrbitBrowser.aab
-          sha256sum output/OrbitBrowser.apk output/OrbitBrowser.aab > output/SHA256.txt
+          cp android/app/build/outputs/apk/release/app-release.apk output/OrbitBrowser.apk
+          sha256sum output/OrbitBrowser.apk > output/SHA256.txt
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -59,10 +80,15 @@ jobs:
           path: output/*
 
       - name: Publish Android Release
+        if: env.ORBIT_SIGNING_READY == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           if ! gh release view Android >/dev/null 2>&1; then
-            gh release create Android --title "Orbit Browser Android" --notes "Orbit Browser 2.0 для Android."
+            gh release create Android --title "Orbit Browser Android" --notes "Orbit Browser 2.2 для Android."
           fi
-          gh release upload Android output/OrbitBrowser.apk output/OrbitBrowser.aab output/SHA256.txt --clobber
+          gh release upload Android output/OrbitBrowser.apk output/SHA256.txt --clobber
+
+      - name: Explain unsigned build
+        if: env.ORBIT_SIGNING_READY != 'true'
+        run: echo "APK artifact built, but publishing is skipped until Android signing secrets are configured."
