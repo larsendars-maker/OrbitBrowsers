@@ -68,9 +68,19 @@ jobs:
         run: gradle clean assembleRelease --stacktrace --console=plain --no-daemon
 
       - name: Prepare files
+        shell: bash
         run: |
+          set -euo pipefail
           mkdir -p output
-          cp android/app/build/outputs/apk/release/app-release.apk output/OrbitBrowser.apk
+          APK_PATH="$(find android/app/build/outputs/apk/release -maxdepth 1 -type f -name "*.apk" -print -quit)"
+          if [ -z "$APK_PATH" ]; then
+            echo "No APK was produced by Gradle."
+            echo "Available outputs:"
+            find android/app/build/outputs -maxdepth 5 -type f -print || true
+            exit 1
+          fi
+          echo "Using APK: $APK_PATH"
+          cp "$APK_PATH" output/OrbitBrowser.apk
           sha256sum output/OrbitBrowser.apk > output/SHA256.txt
 
       - name: Upload artifacts
