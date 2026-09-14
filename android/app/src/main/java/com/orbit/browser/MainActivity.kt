@@ -144,7 +144,7 @@ class MainActivity : ComponentActivity() {
 
         val top = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(12, 8, 12, 6)
+            setPadding(14, 10, 14, 10)
             setBackgroundColor(orbitSurface)
         }
 
@@ -157,14 +157,14 @@ class MainActivity : ComponentActivity() {
             gravity = Gravity.CENTER_VERTICAL
             setTypeface(typeface, Typeface.BOLD)
         }
-        top.addView(brand, LinearLayout.LayoutParams(-1, 38))
+        top.addView(brand, LinearLayout.LayoutParams(-1, adaptiveDp(46, 42, 52)))
 
         val bar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
-        val iconSize = adaptiveDp(44, 38, 52)
-        val barHeight = adaptiveDp(46, 42, 54)
+        val iconSize = adaptiveDp(52, 48, 60)
+        val barHeight = adaptiveDp(58, 54, 66)
         bar.addView(topButton("‹") { currentWeb()?.goBack() }, LinearLayout.LayoutParams(iconSize, barHeight))
         bar.addView(topButton("›") { currentWeb()?.goForward() }, LinearLayout.LayoutParams(iconSize, barHeight))
         bar.addView(topButton("↻") { currentWeb()?.reload() }, LinearLayout.LayoutParams(iconSize, barHeight))
@@ -173,9 +173,9 @@ class MainActivity : ComponentActivity() {
             hint = "Поиск в Orbit или адрес"
             setHintTextColor(orbitMuted)
             setTextColor(orbitTextColor)
-            textSize = if (screenWidthDp() < 340f) 13f else if (screenWidthDp() < 390f) 14f else 15f
+            textSize = if (screenWidthDp() < 340f) 14f else if (screenWidthDp() < 390f) 15f else 16f
             setSingleLine(true)
-            setPadding(adaptiveDp(16, 10, 20), 0, adaptiveDp(16, 10, 20), 0)
+            setPadding(adaptiveDp(18, 12, 22), 0, adaptiveDp(18, 12, 22), 0)
             setBackgroundColor(orbitSurface2)
             setOnEditorActionListener { _, _, _ -> navigate(); true }
         }
@@ -193,7 +193,7 @@ class MainActivity : ComponentActivity() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
             setBackgroundColor(orbitSurface)
-            setPadding(4, 4, 4, 6)
+            setPadding(8, 8, 8, 10)
         }
         val items = listOf(
             "⌂" to { showHome() },
@@ -203,7 +203,7 @@ class MainActivity : ComponentActivity() {
             "●" to { showProfile() }
         )
         items.forEach { (label, action) ->
-            bottomNav.addView(navItem(label, action), LinearLayout.LayoutParams(0, adaptiveDp(52, 46, 62), 1f))
+            bottomNav.addView(navItem(label, action), LinearLayout.LayoutParams(0, adaptiveDp(70, 64, 78), 1f))
         }
         root.addView(bottomNav)
     }
@@ -211,14 +211,14 @@ class MainActivity : ComponentActivity() {
     private fun applyInterfaceVariant(top: ViewGroup) {
         when (interfaceVariant) {
             "GOOGLE" -> {
-                top.setPadding(10, 6, 10, 4)
+                top.setPadding(12, 8, 12, 8)
                 top.setBackgroundColor(Color.rgb(248, 249, 250))
             }
             "MINIMAL" -> {
-                top.setPadding(8, 4, 8, 2)
+                top.setPadding(10, 6, 10, 6)
             }
             "COMPACT" -> {
-                top.setPadding(8, 2, 8, 2)
+                top.setPadding(10, 5, 10, 5)
             }
             "GLASS" -> {
                 top.alpha = 0.96f
@@ -245,7 +245,7 @@ class MainActivity : ComponentActivity() {
 
     private fun topButton(label: String, action: () -> Unit): TextView = TextView(this).apply {
         text = label
-        textSize = if (screenWidthDp() < 360f) 18f else 20f
+        textSize = if (screenWidthDp() < 360f) 21f else if (screenWidthDp() < 400f) 23f else 25f
         gravity = Gravity.CENTER
         setTextColor(orbitTextColor)
         setOnClickListener { action() }
@@ -253,7 +253,7 @@ class MainActivity : ComponentActivity() {
 
     private fun navItem(label: String, action: () -> Unit): TextView = TextView(this).apply {
         text = label
-        textSize = if (screenWidthDp() < 340f) 18f else if (screenWidthDp() < 390f) 20f else 21f
+        textSize = if (screenWidthDp() < 340f) 22f else if (screenWidthDp() < 390f) 24f else 26f
         gravity = Gravity.CENTER
         setTextColor(orbitMuted)
         setOnClickListener { action() }
