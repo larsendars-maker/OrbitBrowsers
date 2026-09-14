@@ -21,7 +21,7 @@ try:
 except Exception:
     genai = None
 
-APP_VERSION = "1.3"
+APP_VERSION = "1.9"
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
 DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 FOUNDER_USERNAME = os.getenv("ORBIT_FOUNDER_USERNAME", "Larsenda").strip() or "Larsenda"
@@ -293,8 +293,10 @@ def site_stats():
         unique_downloads = cur.fetchone()[0]
         cur.execute("SELECT COUNT(*) FROM users")
         users = cur.fetchone()[0]
+        cur.execute("SELECT COUNT(DISTINCT visitor_key) FROM site_events WHERE event_type='view' AND created_at >= CURRENT_DATE")
+        visitors_today = cur.fetchone()[0]
     return {"views": views, "unique_views": unique_views, "downloads": downloads,
-            "unique_downloads": unique_downloads, "users": users}
+            "unique_downloads": unique_downloads, "users": users, "visitors_today": visitors_today}
 
 @app.on_event("startup")
 def startup():
@@ -408,6 +410,14 @@ def root(request: Request):
 @app.get("/admin")
 def admin_page():
     return FileResponse(SITE_DIR / "admin.html")
+
+@app.get("/games")
+def games_page():
+    return FileResponse(SITE_DIR / "games.html")
+
+@app.get("/games.html")
+def games_html_page():
+    return FileResponse(SITE_DIR / "games.html")
 
 @app.get("/assets/{name}")
 def site_asset(name: str):
@@ -828,7 +838,7 @@ def public_site_stats():
     stats = site_stats()
     return {"ok": True, "views": stats["views"], "unique_views": stats["unique_views"],
             "downloads": stats["downloads"], "unique_downloads": stats["unique_downloads"],
-            "users": stats["users"]}
+            "users": stats["users"], "visitors_today": stats["visitors_today"]}
 
 
 @app.get("/api/downloads")

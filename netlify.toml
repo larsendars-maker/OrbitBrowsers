@@ -1,4 +1,10 @@
 [[redirects]]
+  from = "/games"
+  to = "/games.html"
+  status = 200
+  force = true
+
+[[redirects]]
   from = "/download/windows"
   to = "https://github.com/larsendars-maker/OrbitBrowsers/releases/download/Windows/OrbitBrowser-Setup.exe"
   status = 302
