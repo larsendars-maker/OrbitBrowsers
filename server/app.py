@@ -2,6 +2,10 @@ import hashlib
 import os
 import secrets
 import base64
+import html
+import re
+import urllib.parse
+import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -17,7 +21,7 @@ try:
 except Exception:
     genai = None
 
-APP_VERSION = "1.0"
+APP_VERSION = "1.1"
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
 DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 FOUNDER_USERNAME = os.getenv("ORBIT_FOUNDER_USERNAME", "Larsenda").strip() or "Larsenda"
@@ -109,6 +113,35 @@ def require_helper_or_admin(auth):
     if row[8].lower() not in {"helper", "admin"}:
         raise HTTPException(403, "Helper or Admin role required")
     return row
+
+
+@app.get("/api/search")
+def orbit_search(q: str = "", limit: int = 12):
+    query = q.strip()[:200]
+    if not query:
+        return {"ok": True, "results": []}
+    limit = max(1, min(int(limit), 20))
+    url = "https://html.duckduckgo.com/html/?" + urllib.parse.urlencode({"q": query})
+    request = urllib.request.Request(url, headers={"User-Agent": "OrbitBrowser/1.1"})
+    try:
+        with urllib.request.urlopen(request, timeout=6) as response:
+            body = response.read().decode("utf-8", "ignore")
+    except Exception:
+        return {"ok": True, "results": []}
+    results = []
+    pattern = re.compile(r'<a[^>]+class=["\']result__a["\'][^>]+href=["\']([^"\']+)["\'][^>]*>(.*?)</a>', re.I | re.S)
+    for match in pattern.finditer(body):
+        link = html.unescape(re.sub(r"<.*?>", "", match.group(1))).strip()
+        title = html.unescape(re.sub(r"<.*?>", "", match.group(2))).strip()
+        if link.startswith("/l/?"):
+            params = urllib.parse.parse_qs(urllib.parse.urlparse(link).query)
+            link = params.get("uddg", [link])[0]
+        if not link.startswith(("http://", "https://")):
+            continue
+        results.append({"title": title, "url": link, "snippet": ""})
+        if len(results) >= limit:
+            break
+    return {"ok": True, "results": results}
 
 
 class RegisterRequest(BaseModel):

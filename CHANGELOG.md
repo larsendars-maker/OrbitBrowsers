@@ -1,14 +1,17 @@
-# CHANGELOG
+# Orbit Browser — Changelog
 
-## 1.0 — текущая версия
-- Первый публичный релиз Orbit Browser.
-- Windows и Android.
-- Orbit Search установлен как поисковая система по умолчанию.
-- Профили, синхронизация, темы, история и загрузки.
-- Офлайн-режим со Snake и Block Blast.
-- Единая схема прямых загрузок и GitHub Releases.
+## 1.2 — Current
+- Faster startup and delayed background sync/update checks.
+- Reworked landing page with clearer Windows/Android downloads and GitHub release links.
+- Unified Orbit visual system across site, Windows and Android.
+- Removed obsolete build artifacts and caches from release source.
+- Kept Orbit Search as the default search provider.
 
-## План версий
-1.1 → 1.2 → 1.3 → 1.4 → 1.5 → 1.6 → 1.7 → 1.8 → 1.9 → 2.0.
+## 1.1
+- Browser UI rework.
+- Mobile navigation improvements.
+- Orbit Search integration.
+- Profile, history, downloads and sync improvements.
 
-Будущие версии не считаются выпущенными, пока соответствующий GitHub Release не создан.
+## 1.0
+- First public release.

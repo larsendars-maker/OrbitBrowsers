@@ -17,7 +17,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Setup JDK 17
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: "17"
@@ -57,6 +57,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           if ! gh release view Android >/dev/null 2>&1; then
-            gh release create Android --title "Orbit Browser Android" --notes "Orbit Browser 1.0 для Android."
+            gh release create Android --title "Orbit Browser Android" --notes "Orbit Browser 1.2 для Android."
           fi
           gh release upload Android output/OrbitBrowser.apk output/OrbitBrowser.aab output/SHA256.txt --clobber

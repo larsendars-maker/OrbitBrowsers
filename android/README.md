@@ -1,3 +1,3 @@
-Orbit Browser Android 1.0
+Orbit Browser Android 1.1
 
 Нативный Android-клиент Orbit. Сборка выполняется только через GitHub Actions.

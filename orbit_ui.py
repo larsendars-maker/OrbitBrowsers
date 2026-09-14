@@ -21,6 +21,25 @@ TRANSLATIONS = {
         "search_engine": "Search engine", "site_theming": "Apply Orbit style to websites",
         "auto_update": "Automatic updates", "animations": "Smooth animations", "support": "Support", "gemini": "Orbit AI", "admin_panel": "Admin panel",
     },
+
+    "de": {
+        "home": "Startseite", "tabs": "Tabs", "history": "Verlauf", "bookmarks": "Lesezeichen",
+        "downloads": "Downloads", "notes": "Notizen", "settings": "Einstellungen", "search": "Suche oder Adresse",
+        "quick": "Schnellzugriff", "add": "Hinzufügen", "welcome": "Willkommen bei Orbit",
+        "future": "B R O W S E   T H E   F U T U R E", "weather": "Wetter", "profile": "Profil",
+        "language": "Sprache", "appearance": "Darstellung", "behavior": "Verhalten",
+        "search_engine": "Suchmaschine", "site_theming": "Orbit-Stil für Webseiten",
+        "auto_update": "Automatische Updates", "animations": "Sanfte Animationen", "support": "Hilfe", "gemini": "Orbit AI", "admin_panel": "Admin-Bereich",
+    },
+    "es": {
+        "home": "Inicio", "tabs": "Pestañas", "history": "Historial", "bookmarks": "Marcadores",
+        "downloads": "Descargas", "notes": "Notas", "settings": "Ajustes", "search": "Buscar o introducir dirección",
+        "quick": "Acceso rápido", "add": "Añadir", "welcome": "Bienvenido a Orbit",
+        "future": "B R O W S E   T H E   F U T U R E", "weather": "Tiempo", "profile": "Perfil",
+        "language": "Idioma", "appearance": "Apariencia", "behavior": "Comportamiento",
+        "search_engine": "Motor de búsqueda", "site_theming": "Estilo Orbit en sitios",
+        "auto_update": "Actualizaciones automáticas", "animations": "Animaciones suaves", "support": "Ayuda", "gemini": "Orbit AI", "admin_panel": "Panel de administración",
+    },
 }
 
 def tr(language, key):

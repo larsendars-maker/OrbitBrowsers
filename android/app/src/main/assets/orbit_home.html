@@ -14,5 +14,5 @@ main{min-height:100vh;display:flex;flex-direction:column;align-items:center;padd
 function go(e){e.preventDefault();let q=document.getElementById('q').value.trim();if(!q)return;
 if(q.startsWith('http://')||q.startsWith('https://')) location.href=q;
 else if(q.includes('.')&&!q.includes(' ')) location.href='https://'+q;
-else location.href='https://www.google.com/search?q='+encodeURIComponent(q);}
+else location.href='file:///android_asset/orbit_search.html?q='+encodeURIComponent(q);}
 </script></main></body></html>

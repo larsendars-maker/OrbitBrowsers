@@ -279,7 +279,7 @@ class HomePage(QWidget):
         self.weather_data = None
         self.build()
         fade_in(self, 220)
-        self.refresh_weather()
+        self.weather_button.setText("◌  " + (self.browser.config.get("weather_city") or "Москва"))
 
     def lang(self, key):
         return tr(self.browser.config.get("language", "ru"), key)
@@ -598,6 +598,23 @@ class HomePage(QWidget):
         self.refresh_weather()
 
 
+class OrbitSearchWorker(QObject):
+    finished = Signal(object)
+
+    def __init__(self, api_url, query):
+        super().__init__()
+        self.api_url = api_url.rstrip("/")
+        self.query = query
+
+    def run(self):
+        try:
+            response = requests.get(f"{self.api_url}/api/search", params={"q": self.query, "limit": 12}, timeout=6)
+            response.raise_for_status()
+            self.finished.emit(response.json().get("results", []))
+        except Exception as exc:
+            self.finished.emit(exc)
+
+
 class SearchPage(QWidget):
     def __init__(self, browser, query="", force_orbit=False):
         super().__init__()
@@ -632,14 +649,37 @@ class SearchPage(QWidget):
         query = self.input.text().strip()
         if not query:
             return
-
-        # Orbit Search — внутренняя страница Orbit. Внешний провайдер
-        # используется только после выбора пользователем и открывается
-        # в текущей вкладке, без отдельного окна.
-        if self.force_orbit or self.browser.config.get("search_engine", "orbit") == "orbit":
-            self.browser.show_search_results(query)
+        self.query = query
+        if not (self.force_orbit or self.browser.config.get("search_engine", "orbit") == "orbit"):
+            self.browser.open_url(self.browser.search_url(query))
             return
-        self.browser.open_url(self.browser.search_url(query))
+        self.results.clear()
+        self.results.addItem(QListWidgetItem("Поиск в Orbit…"))
+        self.thread = QThread(self)
+        self.worker = OrbitSearchWorker(self.browser.API_URL, query)
+        self.worker.moveToThread(self.thread)
+        self.thread.started.connect(self.worker.run)
+        self.worker.finished.connect(self._search_finished)
+        self.thread.finished.connect(self.worker.deleteLater)
+        self.thread.finished.connect(self.thread.deleteLater)
+        self.thread.start()
+
+    def _search_finished(self, payload):
+        self.results.clear()
+        if isinstance(payload, Exception):
+            self.results.addItem(QListWidgetItem("Orbit Search временно недоступен. Попробуйте ещё раз."))
+        elif not payload:
+            self.results.addItem(QListWidgetItem("По Orbit ничего не найдено."))
+        else:
+            for item in payload:
+                title = item.get("title") or item.get("url") or "Результат"
+                url = item.get("url", "")
+                snippet = item.get("snippet", "")
+                row = QListWidgetItem(f"{title}\n{url}\n{snippet}")
+                row.setData(Qt.ItemDataRole.UserRole, url)
+                self.results.addItem(row)
+        if hasattr(self, "thread"):
+            self.thread.quit()
 
     def open_item(self, item):
         url = item.data(Qt.ItemDataRole.UserRole)
@@ -1973,6 +2013,8 @@ class SettingsPage(QWidget):
         language = QComboBox()
         language.addItem("Русский", "ru")
         language.addItem("English", "en")
+        language.addItem("Deutsch", "de")
+        language.addItem("Español", "es")
         language.setCurrentIndex(language.findData(self.browser.config.get("language", "ru")))
         language.currentIndexChanged.connect(self.change_language)
         self.add_card("Язык интерфейса", "Меняет язык основных элементов Orbit: меню, главной страницы и подсказок.", language)

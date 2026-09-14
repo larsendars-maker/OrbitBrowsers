@@ -3,9 +3,11 @@ package com.orbit.browser
 import android.annotation.SuppressLint
 import android.app.DownloadManager
 import android.content.Context
-import android.net.Uri
 import android.graphics.Color
 import android.graphics.Typeface
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
+import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -16,35 +18,47 @@ import android.webkit.CookieManager
 import android.webkit.DownloadListener
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
+import android.webkit.WebResourceError
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
-import android.widget.*
+import android.widget.Button
+import android.widget.EditText
+import android.widget.FrameLayout
+import android.widget.HorizontalScrollView
+import android.widget.LinearLayout
+import android.widget.ScrollView
+import android.widget.TextView
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.HttpURLConnection
-import java.net.URLEncoder
 import java.net.URL
+import java.net.URLEncoder
 import java.util.concurrent.Executors
 
 class MainActivity : ComponentActivity() {
     private val api = "https://orbit-api-9uqa.onrender.com"
-    private val appVersion = "1.0"
+    private val appVersion = "1.1"
+    private val orbitBg = Color.rgb(5, 7, 18)
+    private val orbitSurface = Color.rgb(11, 16, 35)
+    private val orbitSurface2 = Color.rgb(19, 26, 53)
+    private val orbitBorder = Color.rgb(48, 66, 125)
+    private val orbitAccent = Color.rgb(118, 108, 255)
+    private val orbitAccent2 = Color.rgb(81, 211, 255)
+    private val orbitTextColor = Color.rgb(245, 247, 255)
+    private val orbitMuted = Color.rgb(153, 165, 199)
+
     private lateinit var root: LinearLayout
-    private lateinit var tabsRow: LinearLayout
-    private lateinit var address: EditText
-    private lateinit var title: TextView
     private lateinit var content: FrameLayout
+    private lateinit var address: EditText
+    private lateinit var pageTitle: TextView
+    private lateinit var bottomNav: LinearLayout
+
     private val tabs = mutableListOf<WebView>()
     private var current = -1
-    private val purple = Color.rgb(155, 124, 255)
-    private val bg = Color.rgb(7, 8, 18)
-    private val surface = Color.rgb(16, 18, 37)
-    private val surface2 = Color.rgb(24, 26, 50)
-    private val text = Color.rgb(245, 243, 255)
-    private val muted = Color.rgb(157, 154, 180)
     private val prefs by lazy { getSharedPreferences("orbit", Context.MODE_PRIVATE) }
     private val executor = Executors.newSingleThreadExecutor()
     private val handler = Handler(Looper.getMainLooper())
@@ -54,98 +68,192 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         token = prefs.getString("token", null)
+        loadStoredProfile()
         buildUi()
         showWelcome()
-        if (isOnline()) addTab("file:///android_asset/orbit_home.html") else showOffline()
-        sync(true)
+        addTab("file:///android_asset/orbit_home.html")
+        handler.postDelayed({ sync(false) }, 5000)
         handler.postDelayed(object : Runnable {
             override fun run() {
                 sync(false)
-                handler.postDelayed(this, 10000)
+                handler.postDelayed(this, 60000)
             }
-        }, 10000)
+        }, 30000)
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
-                val v = currentWeb()
-                if (v != null && v.canGoBack()) v.goBack() else showBrowser()
+                val view = currentWeb()
+                if (view != null && view.canGoBack()) view.goBack() else showHome()
             }
         })
     }
 
+    private fun loadStoredProfile() {
+        val raw = prefs.getString("profile", null)
+        if (!raw.isNullOrBlank()) {
+            user = runCatching { JSONObject(raw) }.getOrNull()
+        }
+    }
+
     private fun buildUi() {
-        root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setBackgroundResource(com.orbit.browser.R.drawable.orbit_root_bg) }
+        root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(orbitBg)
+        }
         setContentView(root)
-        val top = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(10, 8, 10, 6); setBackgroundColor(surface) }
-        val brand = TextView(this).apply { text = "✦  ORBIT"; setTextColor(Color.WHITE); textSize = 18f; gravity = Gravity.CENTER_VERTICAL; setTypeface(typeface, Typeface.BOLD) }
-        top.addView(brand, LinearLayout.LayoutParams(-1, 40))
-        tabsRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-        top.addView(tabsRow, LinearLayout.LayoutParams(-1, 42))
-        val bar = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-        fun button(s: String, action: () -> Unit) = TextView(this).apply { text = s; textSize = 20f; gravity = Gravity.CENTER; setTextColor(this@MainActivity.text); setPadding(10, 0, 10, 0); setOnClickListener { action() } }
-        bar.addView(button("‹") { currentWeb()?.goBack() }, LinearLayout.LayoutParams(44, 50))
-        bar.addView(button("›") { currentWeb()?.goForward() }, LinearLayout.LayoutParams(44, 50))
-        bar.addView(button("↻") { currentWeb()?.reload() }, LinearLayout.LayoutParams(44, 50))
+
+        val top = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(12, 8, 12, 6)
+            setBackgroundColor(orbitSurface)
+        }
+
+        val brand = TextView(this).apply {
+            text = "✦  ORBIT"
+            setTextColor(orbitTextColor)
+            textSize = 19f
+            gravity = Gravity.CENTER_VERTICAL
+            setTypeface(typeface, Typeface.BOLD)
+        }
+        top.addView(brand, LinearLayout.LayoutParams(-1, 38))
+
+        val bar = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        bar.addView(topButton("‹") { currentWeb()?.goBack() }, LinearLayout.LayoutParams(42, 46))
+        bar.addView(topButton("›") { currentWeb()?.goForward() }, LinearLayout.LayoutParams(42, 46))
+        bar.addView(topButton("↻") { currentWeb()?.reload() }, LinearLayout.LayoutParams(42, 46))
+
         address = EditText(this).apply {
-            hint = "Поиск или адрес"; setHintTextColor(muted); setTextColor(this@MainActivity.text); textSize = 15f; setSingleLine(true); setPadding(18, 0, 18, 0); setBackgroundColor(surface2)
+            hint = "Поиск в Orbit или адрес"
+            setHintTextColor(orbitMuted)
+            setTextColor(orbitTextColor)
+            textSize = 15f
+            setSingleLine(true)
+            setPadding(16, 0, 16, 0)
+            setBackgroundColor(orbitSurface2)
             setOnEditorActionListener { _, _, _ -> navigate(); true }
         }
-        bar.addView(address, LinearLayout.LayoutParams(0, 50, 1f))
-        bar.addView(button("＋") { addTab("file:///android_asset/orbit_home.html") }, LinearLayout.LayoutParams(44, 50))
-        bar.addView(button("●") { showProfile() }, LinearLayout.LayoutParams(44, 50))
+        bar.addView(address, LinearLayout.LayoutParams(0, 46, 1f))
+        bar.addView(topButton("●") { showProfile() }, LinearLayout.LayoutParams(42, 46))
         top.addView(bar)
-        title = TextView(this).apply { textSize = 11f; setTextColor(muted); setPadding(12, 0, 12, 4) }
-        top.addView(title, LinearLayout.LayoutParams(-1, 28))
+
+        pageTitle = TextView(this).apply {
+            textSize = 11f
+            setTextColor(orbitMuted)
+            setPadding(12, 0, 12, 2)
+        }
+        top.addView(pageTitle, LinearLayout.LayoutParams(-1, 25))
         root.addView(top)
+
         content = FrameLayout(this)
         root.addView(content, LinearLayout.LayoutParams(-1, 0, 1f))
+
+        bottomNav = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            setBackgroundColor(orbitSurface)
+            setPadding(4, 4, 4, 6)
+        }
+        val items = listOf(
+            "⌂" to { showHome() },
+            "☆" to { showSimple("bookmarks") },
+            "◷" to { showSimple("history") },
+            "↓" to { showSimple("downloads") },
+            "●" to { showProfile() }
+        )
+        items.forEach { (label, action) ->
+            bottomNav.addView(navItem(label, action), LinearLayout.LayoutParams(0, 54, 1f))
+        }
+        root.addView(bottomNav)
+    }
+
+    private fun topButton(label: String, action: () -> Unit): TextView = TextView(this).apply {
+        text = label
+        textSize = 20f
+        gravity = Gravity.CENTER
+        setTextColor(orbitTextColor)
+        setOnClickListener { action() }
+    }
+
+    private fun navItem(label: String, action: () -> Unit): TextView = TextView(this).apply {
+        text = label
+        textSize = 21f
+        gravity = Gravity.CENTER
+        setTextColor(orbitMuted)
+        setOnClickListener { action() }
     }
 
     private fun showWelcome() {
-        val overlay = FrameLayout(this).apply { setBackgroundColor(bg); elevation = 100f }
+        val overlay = FrameLayout(this).apply { setBackgroundColor(orbitBg); elevation = 100f }
         val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER }
-        val w = TextView(this).apply { text = "WELCOM"; textSize = 46f; setTextColor(this@MainActivity.text); gravity = Gravity.CENTER; typeface = Typeface.create("sans-serif", Typeface.BOLD) }
-        val sub = TextView(this).apply { text = "ORBIT BROWSER"; textSize = 11f; setTextColor(purple); gravity = Gravity.CENTER; letterSpacing = .25f }
-        box.addView(w); box.addView(sub)
+        val welcome = TextView(this).apply {
+            text = "WELCOM"
+            textSize = 46f
+            setTextColor(orbitTextColor)
+            gravity = Gravity.CENTER
+            typeface = Typeface.create("sans-serif", Typeface.BOLD)
+        }
+        val sub = TextView(this).apply {
+            text = "ORBIT BROWSER"
+            textSize = 11f
+            setTextColor(orbitAccent)
+            gravity = Gravity.CENTER
+            letterSpacing = .25f
+        }
+        box.addView(welcome)
+        box.addView(sub)
         overlay.addView(box, FrameLayout.LayoutParams(-1, -1))
         content.addView(overlay, FrameLayout.LayoutParams(-1, -1))
-        w.alpha = 0f; sub.alpha = 0f
-        w.animate().alpha(1f).setDuration(420).withEndAction { sub.animate().alpha(1f).setDuration(350).withEndAction { overlay.animate().alpha(0f).setDuration(450).withEndAction { content.removeView(overlay) } } }
+        welcome.alpha = 0f
+        sub.alpha = 0f
+        welcome.animate().alpha(1f).setDuration(350).withEndAction {
+            sub.animate().alpha(1f).setDuration(250).withEndAction {
+                overlay.animate().alpha(0f).setDuration(350).withEndAction { content.removeView(overlay) }
+            }
+        }
     }
 
     @SuppressLint("SetJavaScriptEnabled")
-    private fun configure(v: WebView) {
-        v.settings.apply {
+    private fun configure(view: WebView) {
+        view.settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true
-            databaseEnabled = true
+            databaseEnabled = false
             cacheMode = WebSettings.LOAD_DEFAULT
             builtInZoomControls = false
             displayZoomControls = false
             setSupportZoom(true)
             setSupportMultipleWindows(false)
             javaScriptCanOpenWindowsAutomatically = false
-            userAgentString = userAgentString + " OrbitBrowser/1.16.25"
+            userAgentString = "$userAgentString OrbitBrowser/$appVersion"
         }
         CookieManager.getInstance().setAcceptCookie(true)
-        v.webViewClient = object : WebViewClient() {
-            override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
-                val u = request.url.toString()
-                if (u.startsWith("http://") || u.startsWith("https://")) return false
-                return true
+        view.webViewClient = object : WebViewClient() {
+            override fun shouldOverrideUrlLoading(v: WebView, request: WebResourceRequest): Boolean {
+                val url = request.url.toString()
+                return !(url.startsWith("http://") || url.startsWith("https://") || url.startsWith("file:///android_asset/"))
             }
-            override fun onPageFinished(view: WebView, url: String) {
-                if (view === currentWeb()) { address.setText(url); title.text = view.title ?: "Orbit" }
-                if (!url.startsWith("file:///android_asset/offline.html")) saveHistoryItem(url, view.title ?: url)
+
+            override fun onPageFinished(v: WebView, url: String) {
+                if (v === currentWeb()) {
+                    address.setText(url.removePrefix("file:///android_asset/orbit_home.html"))
+                    pageTitle.text = v.title ?: "Orbit"
+                }
+                if (!url.startsWith("file:///android_asset/")) saveHistoryItem(url, v.title ?: url)
             }
-            override fun onReceivedError(view: WebView, request: WebResourceRequest, error: android.webkit.WebResourceError) {
+
+            override fun onReceivedError(v: WebView, request: WebResourceRequest, error: WebResourceError) {
                 if (request.isForMainFrame) showOffline()
             }
         }
-        v.webChromeClient = object : WebChromeClient() {
-            override fun onReceivedTitle(view: WebView, pageTitle: String) { if (view === currentWeb()) title.text = pageTitle }
+        view.webChromeClient = object : WebChromeClient() {
+            override fun onReceivedTitle(v: WebView, title: String) {
+                if (v === currentWeb()) pageTitle.text = title
+            }
         }
-        v.setDownloadListener(DownloadListener { url, userAgent, contentDisposition, mimeType, contentLength ->
-            try {
+        view.setDownloadListener(DownloadListener { url, userAgent, contentDisposition, mimeType, _ ->
+            runCatching {
                 val fileName = android.webkit.URLUtil.guessFileName(url, contentDisposition, mimeType)
                 val request = DownloadManager.Request(Uri.parse(url))
                     .setTitle(fileName)
@@ -154,24 +262,60 @@ class MainActivity : ComponentActivity() {
                     .addRequestHeader("User-Agent", userAgent)
                     .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
                     .setDestinationInExternalPublicDir(android.os.Environment.DIRECTORY_DOWNLOADS, fileName)
-                val manager = getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
-                manager.enqueue(request)
-                Toast.makeText(this, "Загрузка началась: $fileName", Toast.LENGTH_SHORT).show()
-            } catch (e: Exception) {
+                (getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager).enqueue(request)
+                Toast.makeText(this, "Загрузка: $fileName", Toast.LENGTH_SHORT).show()
+            }.onFailure {
                 Toast.makeText(this, "Не удалось начать загрузку", Toast.LENGTH_SHORT).show()
             }
         })
     }
 
-    private fun isOnline(): Boolean {
-        val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as android.net.ConnectivityManager
-        val network = cm.activeNetwork ?: return false
-        val caps = cm.getNetworkCapabilities(network) ?: return false
-        return caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET)
+    private fun navigate() {
+        val query = address.text.toString().trim()
+        if (query.isBlank()) return
+        val target = when {
+            query.startsWith("http://") || query.startsWith("https://") -> query
+            query.startsWith("file:///android_asset/") -> query
+            query.contains(".") && !query.contains(" ") -> "https://$query"
+            else -> "file:///android_asset/orbit_search.html?q=${URLEncoder.encode(query, "UTF-8")}"
+        }
+        currentWeb()?.loadUrl(target) ?: addTab(target)
+    }
+
+    private fun showHome() {
+        showBrowser()
+        currentWeb()?.loadUrl("file:///android_asset/orbit_home.html")
+    }
+
+    private fun showSimple(kind: String) {
+        val panel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(22, 24, 22, 24)
+            setBackgroundColor(orbitBg)
+        }
+        panel.addView(TextView(this).apply {
+            text = when (kind) { "bookmarks" -> "Закладки"; "history" -> "История"; else -> "Загрузки" }
+            textSize = 26f
+            setTextColor(orbitTextColor)
+            typeface = Typeface.DEFAULT_BOLD
+        })
+        val text = TextView(this).apply {
+            setPadding(0, 16, 0, 16)
+            setTextColor(orbitMuted)
+            text = when (kind) {
+                "bookmarks" -> "Закладки синхронизируются с Orbit Account.\n\nДобавляйте страницы из браузера, чтобы видеть их здесь."
+                "history" -> "История хранится локально и синхронизируется после входа в Orbit Account."
+                else -> "Загрузки используют системный Download Manager Android."
+            }
+        }
+        panel.addView(text)
+        val back = Button(this).apply { text = "← Orbit"; setOnClickListener { showHome() } }
+        panel.addView(back)
+        content.removeAllViews()
+        content.addView(panel, FrameLayout.LayoutParams(-1, -1))
     }
 
     private fun showOffline() {
-        currentWeb()?.stopLoading()
         content.removeAllViews()
         val offline = WebView(this)
         configure(offline)
@@ -180,135 +324,181 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun addTab(url: String) {
-        val v = WebView(this); configure(v); tabs.add(v); current = tabs.lastIndex; showBrowser(); v.loadUrl(url); refreshTabs()
+        val view = WebView(this)
+        configure(view)
+        tabs.add(view)
+        current = tabs.lastIndex
+        showBrowser()
+        view.loadUrl(url)
     }
-    private fun currentWeb(): WebView? = if (current in tabs.indices) tabs[current] else null
-    private fun showBrowser() {
-        content.removeAllViews(); val v=currentWeb() ?: return; content.addView(v, FrameLayout.LayoutParams(-1,-1)); address.setText(v.url ?: ""); title.text=v.title ?: "Orbit"; refreshTabs()
-    }
-    private fun refreshTabs() {
-        tabsRow.removeAllViews()
-        tabs.forEachIndexed { i, v ->
-            val t=TextView(this).apply { text=(v.title?.takeIf{it.isNotBlank()} ?: "Новая вкладка").take(16)+"  ×"; textSize=12f; gravity=Gravity.CENTER; setTextColor(if(i==current) this@MainActivity.text else muted); setPadding(12,0,12,0); setOnClickListener{current=i;showBrowser()}; setOnLongClickListener{closeTab(i);true} }
-            tabsRow.addView(t,LinearLayout.LayoutParams(0,42,1f))
-        }
-    }
-    private fun closeTab(i:Int){ if(tabs.size<=1)return; tabs[i].stopLoading(); tabs[i].destroy(); tabs.removeAt(i); current=(current.coerceAtMost(tabs.lastIndex)); showBrowser() }
 
-    private fun navigate() {
-        var q=address.text.toString().trim(); if(q.isEmpty()) return
-        val u=when {
-            q.startsWith("http://") || q.startsWith("https://") -> q
-            q.startsWith("orbit://") -> q
-            q.contains(".") && !q.contains(" ") -> "https://$q"
-            else -> "https://www.bing.com/search?q=" + URLEncoder.encode(q,"UTF-8")
-        }
-        currentWeb()?.loadUrl(u) ?: addTab(u)
+    private fun currentWeb(): WebView? = tabs.getOrNull(current)
+
+    private fun showBrowser() {
+        val view = currentWeb() ?: return
+        content.removeAllViews()
+        content.addView(view, FrameLayout.LayoutParams(-1, -1))
+        address.setText(view.url ?: "")
+        pageTitle.text = view.title ?: "Orbit"
     }
 
     private fun showProfile() {
-        val panel=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL; setPadding(24,28,24,24); setBackgroundColor(bg) }
-        val head=TextView(this).apply{ text=if(user==null) "Orbit Account" else (user?.optString("display_name",user?.optString("username","Orbit"))); textSize=28f; setTextColor(this@MainActivity.text); typeface=Typeface.DEFAULT_BOLD }
-        panel.addView(head)
-        if(user==null){
-            val info=TextView(this).apply{text="В аккаунт пока не входили. Профиль не создаётся автоматически."; setTextColor(muted); setPadding(0,10,0,18)}; panel.addView(info)
-            val email=EditText(this).apply{hint="Email";setTextColor(this@MainActivity.text);setHintTextColor(muted)}; panel.addView(email)
-            val pass=EditText(this).apply{hint="Пароль";setTextColor(this@MainActivity.text);setHintTextColor(muted)}; panel.addView(pass)
-            val name=EditText(this).apply{hint="Имя пользователя для регистрации";setTextColor(this@MainActivity.text);setHintTextColor(muted)}; panel.addView(name)
-            val row=LinearLayout(this); val login=Button(this).apply{text="Войти"}; val reg=Button(this).apply{text="Регистрация"}; row.addView(login,LinearLayout.LayoutParams(0,52,1f));row.addView(reg,LinearLayout.LayoutParams(0,52,1f));panel.addView(row)
-            login.setOnClickListener{auth(false,email.text.toString(),pass.text.toString(),name.text.toString())}; reg.setOnClickListener{auth(true,email.text.toString(),pass.text.toString(),name.text.toString())}
+        val scroll = ScrollView(this)
+        val panel = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(24, 28, 24, 24); setBackgroundColor(orbitBg) }
+        val displayName = user?.optString("display_name").orEmpty().ifBlank { user?.optString("username").orEmpty() }
+        panel.addView(TextView(this).apply {
+            text = if (displayName.isBlank()) "Orbit Account" else displayName
+            textSize = 28f
+            setTextColor(orbitTextColor)
+            typeface = Typeface.DEFAULT_BOLD
+        })
+        if (user == null) {
+            panel.addView(TextView(this).apply { text = "Профиль не создаётся автоматически. Войдите или зарегистрируйтесь."; setTextColor(orbitMuted); setPadding(0, 10, 0, 18) })
+            val email = field("Email")
+            val pass = field("Пароль")
+            val name = field("Имя пользователя для регистрации")
+            pass.inputType = 0x81
+            val row = LinearLayout(this)
+            val login = Button(this).apply { text = "Войти" }
+            val register = Button(this).apply { text = "Регистрация" }
+            row.addView(login, LinearLayout.LayoutParams(0, 52, 1f))
+            row.addView(register, LinearLayout.LayoutParams(0, 52, 1f))
+            panel.addView(email); panel.addView(pass); panel.addView(name); panel.addView(row)
+            login.setOnClickListener { auth(false, email.text.toString(), pass.text.toString(), name.text.toString()) }
+            register.setOnClickListener { auth(true, email.text.toString(), pass.text.toString(), name.text.toString()) }
         } else {
-            val role=TextView(this).apply{text="Роль: "+user!!.optString("role","user");setTextColor(muted);setPadding(0,4,0,12)};panel.addView(role)
-            val titles=TextView(this).apply{text="Титулы";textSize=18f;setTextColor(this@MainActivity.text);typeface=Typeface.DEFAULT_BOLD;setPadding(0,10,0,8)};panel.addView(titles)
-            val titleState=TextView(this).apply{text="Загрузка титулов…";setTextColor(muted);setPadding(0,0,0,12)};panel.addView(titleState)
-            loadTitles(titleState)
-            val display=EditText(this).apply{setText(user!!.optString("display_name"));setTextColor(this@MainActivity.text);setHintTextColor(muted);hint="Имя"};panel.addView(display)
-            val bio=EditText(this).apply{setText(user!!.optString("bio"));setTextColor(this@MainActivity.text);setHintTextColor(muted);hint="О себе";minLines=3};panel.addView(bio)
-            val save=Button(this).apply{text="Сохранить"}; panel.addView(save); save.setOnClickListener{saveProfile(display.text.toString(),bio.text.toString())}
-            val sync=TextView(this).apply{text="Синхронизация активна";setTextColor(purple);setPadding(0,16,0,10)};panel.addView(sync)
-            val logout=Button(this).apply{text="Выйти"};panel.addView(logout);logout.setOnClickListener{prefs.edit().clear().apply();token=null;user=null;showBrowser()}
+            panel.addView(TextView(this).apply { text = "Роль: ${user!!.optString("role", "user")}"; setTextColor(orbitMuted); setPadding(0, 4, 0, 12) })
+            panel.addView(TextView(this).apply { text = "Титулы"; textSize = 18f; setTextColor(orbitTextColor); typeface = Typeface.DEFAULT_BOLD; setPadding(0, 10, 0, 8) })
+            val titles = TextView(this).apply { text = "Загрузка…"; setTextColor(orbitMuted); setPadding(0, 0, 0, 12) }
+            panel.addView(titles)
+            loadTitles(titles)
+            val display = field("Имя", user!!.optString("display_name"))
+            val bio = field("О себе", user!!.optString("bio"))
+            bio.minLines = 3
+            panel.addView(display); panel.addView(bio)
+            panel.addView(Button(this).apply { text = "Сохранить"; setOnClickListener { saveProfile(display.text.toString(), bio.text.toString()) } })
+            panel.addView(TextView(this).apply { text = "Синхронизация активна"; setTextColor(orbitAccent2); setPadding(0, 16, 0, 10) })
+            panel.addView(Button(this).apply { text = "Выйти"; setOnClickListener { prefs.edit().clear().apply(); token = null; user = null; showHome() } })
         }
-        val back=Button(this).apply{text="← Назад"};panel.addView(back);back.setOnClickListener{showBrowser()}
-        content.removeAllViews();content.addView(panel,FrameLayout.LayoutParams(-1,-1))
+        panel.addView(Button(this).apply { text = "← Orbit"; setOnClickListener { showHome() } })
+        scroll.addView(panel)
+        content.removeAllViews()
+        content.addView(scroll, FrameLayout.LayoutParams(-1, -1))
     }
 
-    private fun auth(register:Boolean,email:String,password:String,username:String){
-        executor.execute{
-            try{
-                val body=JSONObject().put("email",email).put("password",password); if(register) body.put("username",username)
-                val result=http(if(register) "/api/auth/register" else "/api/auth/login","POST",body)
-                runOnUiThread{ token=result.optString("token").takeIf{it.isNotBlank()}; user=result.optJSONObject("user"); if(token!=null){prefs.edit().putString("token",token).apply();showProfile();sync(true)} }
-            }catch(e:Exception){runOnUiThread{Toast.makeText(this,"Ошибка входа: ${e.message}",Toast.LENGTH_LONG).show()}}
-        }
+    private fun field(hint: String, value: String = "") = EditText(this).apply {
+        this.hint = hint
+        setText(value)
+        setHintTextColor(orbitMuted)
+        setTextColor(orbitTextColor)
+        setSingleLine(false)
+        setBackgroundColor(orbitSurface2)
+        setPadding(16, 10, 16, 10)
     }
 
-    private fun loadTitles(view: TextView) {
-        val t = token ?: return
+    private fun isOnline(): Boolean {
+        val manager = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        val network = manager.activeNetwork ?: return false
+        val caps = manager.getNetworkCapabilities(network) ?: return false
+        return caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+    }
+
+    private fun auth(register: Boolean, email: String, password: String, username: String) {
         executor.execute {
-            try {
-                val out = http("/api/profile/titles", "GET", null, t)
-                val list = out.optJSONArray("titles") ?: JSONArray()
-                val equipped = out.optString("equipped", "Explorer")
-                val lines = mutableListOf<String>()
-                for (i in 0 until list.length()) {
-                    val item = list.optJSONObject(i) ?: continue
-                    val name = item.optString("name_ru", "Без названия")
-                    val unlocked = item.optBoolean("unlocked", false)
-                    lines.add((if (unlocked) "✓ " else "○ ") + name + if (unlocked && name == equipped) "  • Надет" else "")
-                }
-                runOnUiThread { view.text = if (lines.isEmpty()) "Титулы пока недоступны." else lines.joinToString("\n") }
-            } catch (_: Exception) {
-                runOnUiThread { view.text = "Не удалось загрузить список титулов." }
+            runCatching {
+                val body = JSONObject().put("email", email).put("password", password)
+                if (register) body.put("username", username)
+                http(if (register) "/api/auth/register" else "/api/auth/login", "POST", body)
+            }.onSuccess { result ->
+                token = result.optString("token").takeIf { it.isNotBlank() }
+                user = result.optJSONObject("user")
+                prefs.edit().putString("token", token).putString("profile", user?.toString()).apply()
+                runOnUiThread { showProfile(); sync(true) }
+            }.onFailure { error ->
+                runOnUiThread { Toast.makeText(this, "Ошибка входа: ${error.message}", Toast.LENGTH_LONG).show() }
             }
         }
     }
 
-    private fun saveProfile(display:String,bio:String){
-        val t=token?:return
-        executor.execute{
-            try{val body=JSONObject().put("display_name",display).put("bio",bio).put("profile_theme",user?.optString("profile_theme","VOID")); val out=http("/api/profile","PATCH",body,t);user=out.optJSONObject("user");runOnUiThread{prefs.edit().putString("profile",user?.toString()).apply();Toast.makeText(this,"Профиль сохранён и синхронизирован",Toast.LENGTH_SHORT).show();showProfile()};sync(true)}catch(e:Exception){runOnUiThread{Toast.makeText(this,"Не удалось сохранить профиль",Toast.LENGTH_SHORT).show()}}
+    private fun loadTitles(view: TextView) {
+        val currentToken = token ?: run { view.text = "Войдите, чтобы получить титулы."; return }
+        executor.execute {
+            runCatching { http("/api/profile/titles", "GET", null, currentToken) }
+                .onSuccess { out ->
+                    val titles = out.optJSONArray("titles") ?: JSONArray()
+                    val equipped = out.optString("equipped", "Explorer")
+                    val lines = mutableListOf<String>()
+                    for (i in 0 until titles.length()) {
+                        val item = titles.optJSONObject(i) ?: continue
+                        val name = item.optString("name_ru", "Без названия")
+                        val unlocked = item.optBoolean("unlocked", false)
+                        lines += (if (unlocked) "✓ " else "○ ") + name + if (unlocked && name == equipped) "  • Надет" else ""
+                    }
+                    runOnUiThread { view.text = if (lines.isEmpty()) "Титулы пока недоступны." else lines.joinToString("\n") }
+                }
+                .onFailure { runOnUiThread { view.text = "Не удалось загрузить титулы." } }
         }
     }
 
-    private fun sync(force:Boolean){
-        val t=token?:return
-        executor.execute{
-            try{
-                val state=JSONObject().put("user",user?:JSONObject()).put("history",loadHistory()).put("bookmarks",loadBookmarks())
-                val out=http("/api/sync/state","POST",JSONObject().put("state",state),t)
-                val remote=out.optJSONObject("state"); if(remote!=null){user=remote.optJSONObject("user")?:user; saveHistory(remote.optJSONArray("history"));saveBookmarks(remote.optJSONArray("bookmarks"));runOnUiThread{}}
-            }catch(_:Exception){}
+    private fun saveProfile(display: String, bio: String) {
+        val currentToken = token ?: return
+        executor.execute {
+            runCatching {
+                val body = JSONObject().put("display_name", display).put("bio", bio).put("profile_theme", user?.optString("profile_theme", "VOID"))
+                http("/api/profile", "PATCH", body, currentToken)
+            }.onSuccess { out ->
+                user = out.optJSONObject("user")
+                prefs.edit().putString("profile", user?.toString()).apply()
+                runOnUiThread { Toast.makeText(this, "Профиль сохранён и синхронизирован", Toast.LENGTH_SHORT).show(); showProfile() }
+                sync(true)
+            }.onFailure { runOnUiThread { Toast.makeText(this, "Не удалось сохранить профиль", Toast.LENGTH_SHORT).show() } }
         }
     }
 
-    private fun http(path:String,method:String,body:JSONObject?=null,bearer:String?=token):JSONObject{
-        val c=(URL(api+path).openConnection() as HttpURLConnection);c.requestMethod=method;c.connectTimeout=8000;c.readTimeout=8000;c.setRequestProperty("Content-Type","application/json");if(bearer!=null)c.setRequestProperty("Authorization","Bearer $bearer");if(body!=null){c.doOutput=true;c.outputStream.use{it.write(body.toString().toByteArray())}};val text=(if(c.responseCode>=400)c.errorStream else c.inputStream).bufferedReader().use{it.readText()};if(c.responseCode>=400)throw IllegalStateException(text);return JSONObject(text)
+    private fun sync(force: Boolean) {
+        val currentToken = token ?: return
+        executor.execute {
+            runCatching {
+                val state = JSONObject().put("user", user ?: JSONObject()).put("history", loadHistory()).put("bookmarks", loadBookmarks())
+                http("/api/sync/state", "POST", JSONObject().put("state", state), currentToken)
+            }
+        }
     }
 
-    private fun saveHistoryItem(url: String, pageTitle: String) {
+    private fun http(path: String, method: String, body: JSONObject? = null, bearer: String? = token): JSONObject {
+        val connection = URL(api + path).openConnection() as HttpURLConnection
+        connection.requestMethod = method
+        connection.connectTimeout = 6000
+        connection.readTimeout = 6000
+        connection.setRequestProperty("Content-Type", "application/json")
+        if (bearer != null) connection.setRequestProperty("Authorization", "Bearer $bearer")
+        if (body != null) {
+            connection.doOutput = true
+            connection.outputStream.use { it.write(body.toString().toByteArray()) }
+        }
+        val responseText = (if (connection.responseCode >= 400) connection.errorStream else connection.inputStream).bufferedReader().use { it.readText() }
+        if (connection.responseCode >= 400) throw IllegalStateException(responseText)
+        return JSONObject(responseText)
+    }
+
+    private fun saveHistoryItem(url: String, title: String) {
+        if (url.startsWith("file:///android_asset/")) return
         val items = loadHistory()
-        val entry = JSONObject()
-            .put("url", url)
-            .put("title", pageTitle)
-            .put("timestamp", System.currentTimeMillis())
-        for (i in items.length() - 1 downTo 0) {
-            val existing = items.optJSONObject(i)
-            if (existing?.optString("url") == url) items.remove(i)
-        }
-        val updated = JSONArray()
-        updated.put(entry)
+        for (i in items.length() - 1 downTo 0) if (items.optJSONObject(i)?.optString("url") == url) items.remove(i)
+        val updated = JSONArray().put(JSONObject().put("url", url).put("title", title).put("timestamp", System.currentTimeMillis()))
         for (i in 0 until minOf(items.length(), 199)) updated.put(items.opt(i))
         prefs.edit().putString("history", updated.toString()).apply()
     }
-    private fun saveHistory(items: JSONArray?) {
-        if (items == null) return
-        prefs.edit().putString("history", items.toString()).apply()
-    }
-    private fun loadHistory(): JSONArray {
-        return try { JSONArray(prefs.getString("history", "[]") ?: "[]") } catch (_: Exception) { JSONArray() }
-    }
-    private fun saveBookmarks(items:JSONArray?){ if(items==null)return; prefs.edit().putString("bookmarks",items.toString()).apply() }
-    private fun loadBookmarks():JSONArray{ return try{JSONArray(prefs.getString("bookmarks","[]")?:"[]")}catch(_:Exception){JSONArray()} }
 
-    override fun onDestroy(){ handler.removeCallbacksAndMessages(null); tabs.forEach{it.stopLoading();it.destroy()}; executor.shutdownNow(); super.onDestroy() }
+    private fun loadHistory(): JSONArray = runCatching { JSONArray(prefs.getString("history", "[]") ?: "[]") }.getOrElse { JSONArray() }
+    private fun saveHistory(items: JSONArray?) { if (items != null) prefs.edit().putString("history", items.toString()).apply() }
+    private fun loadBookmarks(): JSONArray = runCatching { JSONArray(prefs.getString("bookmarks", "[]") ?: "[]") }.getOrElse { JSONArray() }
+    private fun saveBookmarks(items: JSONArray?) { if (items != null) prefs.edit().putString("bookmarks", items.toString()).apply() }
+
+    override fun onDestroy() {
+        handler.removeCallbacksAndMessages(null)
+        tabs.forEach { it.stopLoading(); it.destroy() }
+        executor.shutdownNow()
+        super.onDestroy()
+    }
 }

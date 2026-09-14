@@ -19,7 +19,7 @@ from orbit_ui import THEMES, stylesheet, tr
 from orbit_secure import protect as secure_protect, unprotect as secure_unprotect
 
 APP_NAME = "Orbit Browser"
-APP_VERSION = "1.0"
+APP_VERSION = "1.1"
 API_URL = "https://orbit-api-9uqa.onrender.com"
 GITHUB_REPO = "larsendars-maker/OrbitBrowsers"
 WINDOWS_APP_USER_MODEL_ID = "Larsenda.OrbitBrowser"
@@ -204,7 +204,7 @@ class OrbitBrowser(QMainWindow):
         self._sync_last_signature = ""
         self._sync_running = False
         self._sync_timer = QTimer(self)
-        self._sync_timer.setInterval(5000)
+        self._sync_timer.setInterval(60000)
         self._sync_timer.timeout.connect(self.sync_now)
         self.current_theme = config.get("theme", "VOID")
         self.API_URL = API_URL
@@ -237,12 +237,12 @@ class OrbitBrowser(QMainWindow):
         self.apply_theme()
         self.show_home_screen()
         self.update_timer = QTimer(self)
-        QTimer.singleShot(2500, self.check_updates)
+        QTimer.singleShot(5000, self.check_updates)
         self.update_timer.setInterval(30 * 60 * 1000)
         self.update_timer.timeout.connect(self.check_updates)
         self.update_timer.start()
         self._sync_timer.start()
-        QTimer.singleShot(1200, self.sync_now)
+        QTimer.singleShot(6000, self.sync_now)
 
     def build_ui(self):
         central = QWidget()
@@ -266,7 +266,6 @@ class OrbitBrowser(QMainWindow):
 
         nav = [
             ("⌂", "home", self.show_home_screen),
-            ("▣", "tabs", self.show_web_area),
             ("◷", "history", self.open_history),
             ("☆", "bookmarks", self.open_bookmarks),
             ("↓", "downloads", self.open_downloads),
@@ -279,8 +278,7 @@ class OrbitBrowser(QMainWindow):
         if self.is_guest:
             nav = [
                 ("⌂", "home", self.show_home_screen),
-                ("▣", "tabs", self.show_web_area),
-                ("◷", "history", self.open_history),
+                    ("◷", "history", self.open_history),
                 ("☆", "bookmarks", self.open_bookmarks),
                 ("↓", "downloads", self.open_downloads),
                 ("✦", "gemini", self.open_gemini),
