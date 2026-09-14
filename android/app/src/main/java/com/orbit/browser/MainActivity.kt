@@ -27,9 +27,9 @@ import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
+import android.widget.PopupWindow
 import android.widget.ScrollView
 import android.widget.TextView
-import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
 import org.json.JSONArray
@@ -50,6 +50,8 @@ class MainActivity : ComponentActivity() {
     private val orbitAccent2 = Color.rgb(81, 211, 255)
     private val orbitTextColor = Color.rgb(245, 247, 255)
     private val orbitMuted = Color.rgb(153, 165, 199)
+    private var interfaceVariant: String = "BASE"
+
 
     private lateinit var root: LinearLayout
     private lateinit var content: FrameLayout
@@ -69,10 +71,11 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         token = prefs.getString("token", null)
         loadStoredProfile()
+        interfaceVariant = prefs.getString("interface_variant", "BASE") ?: "BASE"
         buildUi()
         showWelcome()
         addTab("file:///android_asset/orbit_home.html")
-        handler.postDelayed({ sync(false) }, 5000)
+        handler.postDelayed({ sync(false) }, 1800)
         handler.postDelayed(object : Runnable {
             override fun run() {
                 sync(false)
@@ -107,6 +110,8 @@ class MainActivity : ComponentActivity() {
             setBackgroundColor(orbitSurface)
         }
 
+        applyInterfaceVariant(top)
+
         val brand = TextView(this).apply {
             text = "✦  ORBIT"
             setTextColor(orbitTextColor)
@@ -135,16 +140,10 @@ class MainActivity : ComponentActivity() {
             setOnEditorActionListener { _, _, _ -> navigate(); true }
         }
         bar.addView(address, LinearLayout.LayoutParams(0, 46, 1f))
-        bar.addView(topButton("🎮") { showGames() }, LinearLayout.LayoutParams(42, 46))
         bar.addView(topButton("●") { showProfile() }, LinearLayout.LayoutParams(42, 46))
         top.addView(bar)
 
-        pageTitle = TextView(this).apply {
-            textSize = 11f
-            setTextColor(orbitMuted)
-            setPadding(12, 0, 12, 2)
-        }
-        top.addView(pageTitle, LinearLayout.LayoutParams(-1, 25))
+        pageTitle = TextView(this).apply { visibility = View.GONE }
         root.addView(top)
 
         content = FrameLayout(this)
@@ -167,6 +166,41 @@ class MainActivity : ComponentActivity() {
             bottomNav.addView(navItem(label, action), LinearLayout.LayoutParams(0, 54, 1f))
         }
         root.addView(bottomNav)
+    }
+
+    private fun applyInterfaceVariant(top: ViewGroup) {
+        when (interfaceVariant) {
+            "GOOGLE" -> {
+                top.setPadding(10, 6, 10, 4)
+                top.setBackgroundColor(Color.rgb(248, 249, 250))
+            }
+            "MINIMAL" -> {
+                top.setPadding(8, 4, 8, 2)
+            }
+            "COMPACT" -> {
+                top.setPadding(8, 2, 8, 2)
+            }
+            "GLASS" -> {
+                top.alpha = 0.96f
+            }
+            else -> Unit
+        }
+    }
+
+    private fun setInterfaceVariant(value: String) {
+        interfaceVariant = value
+        prefs.edit().putString("interface_variant", value).apply()
+        notifyUser("Интерфейс изменён", variantLabel(value))
+        buildUi()
+        showBrowser()
+    }
+
+    private fun variantLabel(value: String): String = when (value) {
+        "GOOGLE" -> "Как Google"
+        "MINIMAL" -> "Минимализм"
+        "COMPACT" -> "Компактный"
+        "GLASS" -> "Стекло"
+        else -> "Базовый"
     }
 
     private fun topButton(label: String, action: () -> Unit): TextView = TextView(this).apply {
@@ -221,14 +255,17 @@ class MainActivity : ComponentActivity() {
             javaScriptEnabled = true
             domStorageEnabled = true
             databaseEnabled = false
-            cacheMode = WebSettings.LOAD_CACHE_ELSE_NETWORK
+            cacheMode = WebSettings.LOAD_DEFAULT
+            loadsImagesAutomatically = true
+            blockNetworkLoads = false
+            mediaPlaybackRequiresUserGesture = true
             builtInZoomControls = false
             displayZoomControls = false
             setSupportZoom(true)
             setSupportMultipleWindows(false)
             setMediaPlaybackRequiresUserGesture(true)
             javaScriptCanOpenWindowsAutomatically = false
-            userAgentString = "$userAgentString OrbitBrowser/$appVersion"
+            userAgentString = userAgentString.replace("; wv", "").replace(" Version/4.0", "")
         }
         CookieManager.getInstance().setAcceptCookie(true)
         view.webViewClient = object : WebViewClient() {
@@ -239,14 +276,16 @@ class MainActivity : ComponentActivity() {
 
             override fun onPageFinished(v: WebView, url: String) {
                 if (v === currentWeb()) {
-                    address.setText(url.removePrefix("file:///android_asset/orbit_home.html"))
+                    address.setText(if (url.startsWith("file:///android_asset/orbit_home.html")) "" else url)
                     pageTitle.text = v.title ?: "Orbit"
                 }
                 if (!url.startsWith("file:///android_asset/")) saveHistoryItem(url, v.title ?: url)
             }
 
             override fun onReceivedError(v: WebView, request: WebResourceRequest, error: WebResourceError) {
-                if (request.isForMainFrame) showOffline()
+                if (request.isForMainFrame && v === currentWeb()) {
+                    showErrorPage(error.description?.toString() ?: "Не удалось загрузить страницу")
+                }
             }
         }
         view.webChromeClient = object : WebChromeClient() {
@@ -265,9 +304,9 @@ class MainActivity : ComponentActivity() {
                     .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
                     .setDestinationInExternalPublicDir(android.os.Environment.DIRECTORY_DOWNLOADS, fileName)
                 (getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager).enqueue(request)
-                Toast.makeText(this, "Загрузка: $fileName", Toast.LENGTH_SHORT).show()
+                notifyUser("Загрузка началась", fileName)
             }.onFailure {
-                Toast.makeText(this, "Не удалось начать загрузку", Toast.LENGTH_SHORT).show()
+                notifyUser("Ошибка", "Не удалось начать загрузку")
             }
         })
     }
@@ -279,7 +318,7 @@ class MainActivity : ComponentActivity() {
             query.startsWith("http://") || query.startsWith("https://") -> query
             query.startsWith("file:///android_asset/") -> query
             query.contains(".") && !query.contains(" ") -> "https://$query"
-            else -> "file:///android_asset/orbit_search.html?q=${URLEncoder.encode(query, "UTF-8")}"
+            else -> searchUrl(query)
         }
         currentWeb()?.loadUrl(target) ?: addTab(target)
     }
@@ -287,6 +326,11 @@ class MainActivity : ComponentActivity() {
     private fun showHome() {
         showBrowser()
         currentWeb()?.loadUrl("file:///android_asset/orbit_home.html")
+    }
+
+    private fun searchUrl(query: String): String {
+        val encoded = URLEncoder.encode(query, "UTF-8")
+        return "https://www.google.com/search?q=$encoded"
     }
 
     private fun showSimple(kind: String) {
@@ -322,12 +366,70 @@ class MainActivity : ComponentActivity() {
         currentWeb()?.loadUrl("file:///android_asset/offline.html")
     }
 
-    private fun showOffline() {
+    private fun showErrorPage(message: String) {
+        val panel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            setPadding(28, 28, 28, 28)
+            setBackgroundColor(orbitBg)
+        }
+        panel.addView(TextView(this).apply {
+            text = "Не удалось открыть страницу"
+            textSize = 24f
+            gravity = Gravity.CENTER
+            setTextColor(orbitTextColor)
+            typeface = Typeface.DEFAULT_BOLD
+        })
+        panel.addView(TextView(this).apply {
+            text = message
+            textSize = 14f
+            gravity = Gravity.CENTER
+            setTextColor(orbitMuted)
+            setPadding(0, 12, 0, 20)
+        })
+        panel.addView(Button(this).apply {
+            text = "Повторить"
+            setOnClickListener { currentWeb()?.reload() ?: showHome() }
+        })
+        panel.addView(Button(this).apply {
+            text = "На главную"
+            setOnClickListener { showHome() }
+        })
         content.removeAllViews()
-        val offline = WebView(this)
-        configure(offline)
-        content.addView(offline, FrameLayout.LayoutParams(-1, -1))
-        offline.loadUrl("file:///android_asset/offline.html")
+        content.addView(panel, FrameLayout.LayoutParams(-1, -1))
+    }
+
+    private fun notifyUser(title: String, message: String, duration: Long = 2800L) {
+        val card = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(18, 12, 18, 12)
+            setBackgroundColor(orbitSurface2)
+            elevation = 18f
+        }
+        card.addView(TextView(this).apply {
+            text = title
+            textSize = 13f
+            setTextColor(orbitAccent2)
+            typeface = Typeface.DEFAULT_BOLD
+        })
+        card.addView(TextView(this).apply {
+            text = message
+            textSize = 12f
+            setTextColor(orbitTextColor)
+            setPadding(0, 4, 0, 0)
+        })
+        val width = (resources.displayMetrics.widthPixels * 0.78f).toInt().coerceAtMost(360)
+        val popup = PopupWindow(card, width, ViewGroup.LayoutParams.WRAP_CONTENT, false).apply {
+            isOutsideTouchable = false
+            isFocusable = false
+            elevation = 18f
+        }
+        card.alpha = 0f
+        popup.showAtLocation(root, Gravity.BOTTOM or Gravity.END, 14, 78)
+        card.animate().alpha(1f).setDuration(180).start()
+        handler.postDelayed({
+            card.animate().alpha(0f).setDuration(220).withEndAction { popup.dismiss() }.start()
+        }, duration)
     }
 
     private fun addTab(url: String) {
@@ -383,8 +485,30 @@ class MainActivity : ComponentActivity() {
             val bio = field("О себе", user!!.optString("bio"))
             bio.minLines = 3
             panel.addView(display); panel.addView(bio)
-            panel.addView(Button(this).apply { text = "Сохранить"; setOnClickListener { saveProfile(display.text.toString(), bio.text.toString()) } })
-            panel.addView(TextView(this).apply { text = "Синхронизация активна"; setTextColor(orbitAccent2); setPadding(0, 16, 0, 10) })
+
+            panel.addView(TextView(this).apply {
+                text = "Вариант интерфейса"
+                textSize = 18f
+                setTextColor(orbitTextColor)
+                typeface = Typeface.DEFAULT_BOLD
+                setPadding(0, 16, 0, 8)
+            })
+            val variants = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+            listOf(
+                "BASE" to "Базовый",
+                "GOOGLE" to "Как Google",
+                "MINIMAL" to "Минимализм",
+                "COMPACT" to "Компактный",
+                "GLASS" to "Стекло"
+            ).forEach { (key, label) ->
+                variants.addView(Button(this).apply {
+                    text = if (interfaceVariant == key) "✓ $label" else label
+                    setOnClickListener { setInterfaceVariant(key) }
+                })
+            }
+            panel.addView(variants)
+            panel.addView(Button(this).apply { text = "Сохранить профиль"; setOnClickListener { saveProfile(display.text.toString(), bio.text.toString()) } })
+            panel.addView(TextView(this).apply { text = "Синхронизация · в фоне"; setTextColor(orbitAccent2); setPadding(0, 16, 0, 10) })
             panel.addView(Button(this).apply { text = "Выйти"; setOnClickListener { prefs.edit().clear().apply(); token = null; user = null; showHome() } })
         }
         panel.addView(Button(this).apply { text = "← Orbit"; setOnClickListener { showHome() } })
@@ -422,7 +546,7 @@ class MainActivity : ComponentActivity() {
                 prefs.edit().putString("token", token).putString("profile", user?.toString()).apply()
                 runOnUiThread { showProfile(); sync(true) }
             }.onFailure { error ->
-                runOnUiThread { Toast.makeText(this, "Ошибка входа: ${error.message}", Toast.LENGTH_LONG).show() }
+                runOnUiThread { notifyUser("Ошибка входа", error.message ?: "Неизвестная ошибка", 4200) }
             }
         }
     }
@@ -456,9 +580,9 @@ class MainActivity : ComponentActivity() {
             }.onSuccess { out ->
                 user = out.optJSONObject("user")
                 prefs.edit().putString("profile", user?.toString()).apply()
-                runOnUiThread { Toast.makeText(this, "Профиль сохранён и синхронизирован", Toast.LENGTH_SHORT).show(); showProfile() }
+                runOnUiThread { notifyUser("Профиль сохранён", "Изменения синхронизированы"); showProfile() }
                 sync(true)
-            }.onFailure { runOnUiThread { Toast.makeText(this, "Не удалось сохранить профиль", Toast.LENGTH_SHORT).show() } }
+            }.onFailure { runOnUiThread { notifyUser("Ошибка", "Не удалось сохранить профиль") } }
         }
     }
 
@@ -475,8 +599,8 @@ class MainActivity : ComponentActivity() {
     private fun http(path: String, method: String, body: JSONObject? = null, bearer: String? = token): JSONObject {
         val connection = URL(api + path).openConnection() as HttpURLConnection
         connection.requestMethod = method
-        connection.connectTimeout = 6000
-        connection.readTimeout = 6000
+        connection.connectTimeout = 2500
+        connection.readTimeout = 3500
         connection.setRequestProperty("Content-Type", "application/json")
         if (bearer != null) connection.setRequestProperty("Authorization", "Bearer $bearer")
         if (body != null) {

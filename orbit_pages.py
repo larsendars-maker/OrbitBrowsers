@@ -276,12 +276,16 @@ class HomePage(QWidget):
         super().__init__()
         self.browser = browser
         self.setObjectName("homePage")
-        self.weather_data = None
+        self.weather_data = self.browser.config.get("weather_cached") or None
         self.build()
-        fade_in(self, 220)
-        self.weather_button.setText("◌  " + (self.browser.config.get("weather_city") or "Москва"))
-        # Погода никогда не блокирует запуск Orbit. Загружаем её после первого кадра UI.
-        QTimer.singleShot(900, self.refresh_weather_async)
+        fade_in(self, 120)
+        cached = self.weather_data
+        if isinstance(cached, dict) and cached.get("temperature") is not None:
+            self._apply_weather_payload(cached, persist=False)
+        else:
+            self.weather_button.setText("◌  " + (self.browser.config.get("weather_city") or "Москва"))
+        # Погода никогда не блокирует запуск Orbit. Обновляем её после первого кадра UI.
+        QTimer.singleShot(350, self.refresh_weather_async)
 
     def lang(self, key):
         return tr(self.browser.config.get("language", "ru"), key)
@@ -425,7 +429,7 @@ class HomePage(QWidget):
         if hasattr(self, "_weather_thread") and self._weather_thread.isRunning():
             self._weather_thread.quit()
 
-    def _apply_weather_payload(self, data):
+    def _apply_weather_payload(self, data, persist=True):
         language = self.browser.config.get("language", "ru")
         self.weather_data = data
         self.browser.config.update({
@@ -435,8 +439,9 @@ class HomePage(QWidget):
             "weather_longitude": data.get("longitude"),
             "weather_cached": data,
         })
-        from orbit_storage import save_config
-        save_config(self.browser.config)
+        if persist:
+            from orbit_storage import save_config
+            save_config(self.browser.config)
         temp = data.get("temperature")
         city = data.get("city") or "Москва"
         self.weather_button.setText(f"◌  {city} · {temp:.1f}°C" if isinstance(temp,(int,float)) else f"◌  {city}")
@@ -557,11 +562,11 @@ class WeatherWorker(QObject):
         try:
             lat, lon, city, country = self.lat, self.lon, self.city, ""
             if lat is None or lon is None:
-                r=requests.get("https://geocoding-api.open-meteo.com/v1/search",params={"name":city,"count":1,"language":"ru" if self.language=="ru" else "en","format":"json"},timeout=4)
+                r=requests.get("https://geocoding-api.open-meteo.com/v1/search",params={"name":city,"count":1,"language":"ru" if self.language=="ru" else "en","format":"json"},timeout=2.5)
                 r.raise_for_status(); result=(r.json().get("results") or [None])[0]
                 if not result: raise ValueError("city not found")
                 lat=result.get("latitude"); lon=result.get("longitude"); city=result.get("name") or city; country=result.get("country") or ""
-            r=requests.get("https://api.open-meteo.com/v1/forecast",params={"latitude":lat,"longitude":lon,"current":"temperature_2m,apparent_temperature,relative_humidity_2m,wind_speed_10m,weather_code","timezone":"auto"},timeout=5)
+            r=requests.get("https://api.open-meteo.com/v1/forecast",params={"latitude":lat,"longitude":lon,"current":"temperature_2m,apparent_temperature,relative_humidity_2m,wind_speed_10m,weather_code","timezone":"auto"},timeout=3.0)
             r.raise_for_status(); cur=r.json().get("current",{})
             code=cur.get("weather_code")
             ru={0:"Ясно",1:"Преимущественно ясно",2:"Переменная облачность",3:"Пасмурно",45:"Туман",48:"Изморозь",51:"Морось",53:"Морось",55:"Сильная морось",61:"Небольшой дождь",63:"Дождь",65:"Сильный дождь",71:"Небольшой снег",73:"Снег",75:"Сильный снег",80:"Ливни",81:"Сильные ливни",82:"Очень сильные ливни",95:"Гроза",96:"Гроза с градом",99:"Сильная гроза с градом"}
@@ -1256,12 +1261,14 @@ class EditProfileDialog(QDialog):
         avatar_col=QVBoxLayout();
         btn=QPushButton("Изменить фотографию"); btn.clicked.connect(self.choose_avatar); avatar_col.addWidget(btn)
         note=QLabel("JPG, PNG или WEBP • хранится локально на этом компьютере"); note.setObjectName("muted"); note.setWordWrap(True); avatar_col.addWidget(note); avatar_row.addLayout(avatar_col); avatar_row.addStretch(); layout.addLayout(avatar_row)
-        form=QFormLayout(); self.display=QLineEdit(browser.user.get("display_name") or browser.user.get("username", "")); self.bio=QLineEdit(browser.user.get("bio", "")); self.bio.setPlaceholderText("Коротко расскажите о себе"); self.title_info=QComboBox(); self.title_info.setToolTip("Можно выбрать только уже полученный титул"); unlocked = browser.user.get("unlocked_titles") or [browser.user.get("equipped_title") or browser.user.get("title", "Explorer")]; current_title=browser.user.get("equipped_title") or browser.user.get("title", "Explorer");
+        form=QFormLayout(); self.display=QLineEdit(browser.user.get("display_name") or browser.user.get("username", "")); self.bio=QLineEdit(browser.user.get("bio", "")); self.bio.setPlaceholderText("Коротко расскажите о себе");
+        self.theme=QComboBox(); self.theme.setToolTip("Выберите тему оформления профиля"); self.theme.addItems(list(THEMES.keys())); self.theme.setCurrentText(browser.user.get("profile_theme", browser.current_theme));
+        self.title_info=QComboBox(); self.title_info.setToolTip("Можно выбрать только уже полученный титул"); unlocked = browser.user.get("unlocked_titles") or [browser.user.get("equipped_title") or browser.user.get("title", "Explorer")]; current_title=browser.user.get("equipped_title") or browser.user.get("title", "Explorer");
         for title_item in unlocked:
             if title_item and self.title_info.findText(title_item) < 0: self.title_info.addItem(title_item);
         idx=self.title_info.findText(current_title);
         if idx >= 0: self.title_info.setCurrentIndex(idx);
-        self.theme=QComboBox(); self.theme.addItems(THEMES.keys()); self.theme.setCurrentText(browser.user.get("profile_theme", browser.current_theme)); form.addRow("Имя профиля",self.display); form.addRow("О себе",self.bio); form.addRow("Титул",self.title_info); form.addRow("Тема профиля",self.theme); layout.addLayout(form)
+        form.addRow("Имя профиля", self.display); form.addRow("О себе", self.bio); form.addRow("Тема профиля", self.theme); form.addRow("Титул", self.title_info); layout.addLayout(form)
         row=QHBoxLayout(); cancel=QPushButton("Отмена"); save=QPushButton("Сохранить"); save.setProperty("accent",True); row.addWidget(cancel); row.addWidget(save); layout.addLayout(row); cancel.clicked.connect(self.reject); save.clicked.connect(self.save); self.avatar_source=""; self.refresh_preview()
 
     def refresh_preview(self):
