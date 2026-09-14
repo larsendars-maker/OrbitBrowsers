@@ -18,7 +18,7 @@ from orbit_storage import load_config, save_config, load_local_profile, save_loc
 from orbit_ui import THEMES, stylesheet, tr
 
 APP_NAME = "Orbit Browser"
-APP_VERSION = "1.16.15"
+APP_VERSION = "1.16.17"
 API_URL = "https://orbit-api-9uqa.onrender.com"
 GITHUB_REPO = "larsendars-maker/OrbitBrowsers"
 WINDOWS_APP_USER_MODEL_ID = "Larsenda.OrbitBrowser"
@@ -80,6 +80,13 @@ class BrowserView(QWebEngineView):
         settings.setAttribute(QWebEngineSettings.WebAttribute.FullScreenSupportEnabled, True)
         self.loadFinished.connect(self.apply_site_theme)
 
+    def createWindow(self, _window_type):
+        """Открывать target=_blank/window.open внутри новой вкладки Orbit, а не во внешнем окне."""
+        try:
+            return self.browser_window.new_browser_tab()
+        except Exception:
+            return None
+
     def apply_site_theme(self):
         url = self.url().toString().lower()
         search_hosts = ("google.", "bing.com", "duckduckgo.com", "accounts.google.", "login.microsoftonline.com")
@@ -114,9 +121,10 @@ class OrbitBrowser(QMainWindow):
 
     def __init__(self, session, config):
         super().__init__()
-        self.token = session.get("token")
-        self.user = session["user"]
-        self.is_guest = bool(session.get("guest")) or not self.token
+        self.token = session.get("token") if session else None
+        self.user = session.get("user") if session else None
+        # Анонимный режим не создаёт виртуального/гостевого пользователя.
+        self.is_guest = not bool(self.token and self.user)
         self.config = config
         self.current_theme = config.get("theme", "VOID")
         self.API_URL = API_URL
@@ -142,7 +150,8 @@ class OrbitBrowser(QMainWindow):
         self.setMinimumSize(1100, 700)
         self.config["stats_sessions"] = int(self.config.get("stats_sessions", 0)) + 1
         save_config(self.config)
-        save_local_profile(self.user)
+        if isinstance(self.user, dict):
+            save_local_profile(self.user)
         self.build_ui()
         self.update_identity_ui()
         self.apply_theme()
@@ -184,7 +193,7 @@ class OrbitBrowser(QMainWindow):
             ("✎", "notes", self.open_notes),
             ("⚙", "settings", self.open_settings),
         ]
-        role = self.user.get("role", "user").lower()
+        role = (self.user or {}).get("role", "user").lower()
         if self.is_guest:
             nav = [
                 ("⌂", "home", self.show_home_screen),
@@ -506,16 +515,21 @@ class OrbitBrowser(QMainWindow):
         "google": "https://www.google.com/search?q=",
         "bing": "https://www.bing.com/search?q=",
         "duckduckgo": "https://duckduckgo.com/?q=",
-        "orbit": "https://www.google.com/search?q=",
+        "orbit": "orbit://search?q=",
     }
 
     def search_url(self, query):
-        base = self.SEARCH_PROVIDERS.get(self.config.get("search_engine", "google"), self.SEARCH_PROVIDERS["google"])
+        base = self.SEARCH_PROVIDERS.get(self.config.get("search_engine", "orbit"), self.SEARCH_PROVIDERS["orbit"])
         return base + quote(query)
 
     def open_orbit_search(self, query=""):
         if query:
-            self.open_url(self.search_url(query))
+            self.show_web_area()
+            page = SearchPage(self, query, force_orbit=True)
+            i = self.tabs.addTab(page, "Orbit Search")
+            self.install_tab_close_button(i)
+            self.tabs.setCurrentIndex(i)
+            self.address.setText("orbit://search?q=" + quote(query))
             return
         self.show_web_area()
         page = SearchPage(self, query)
@@ -526,6 +540,12 @@ class OrbitBrowser(QMainWindow):
     def open_url(self, url):
         if not url.startswith("orbit://") and not self.network_allowed():
             QMessageBox.warning(self, "Orbit Network", "Orbit настроен работать только при наличии VPN. Включите VPN или отключите эту защиту в Настройках.")
+            return
+        if url.startswith("orbit://search"):
+            from urllib.parse import parse_qs, urlparse, unquote
+            parsed = urlparse(url)
+            query = parse_qs(parsed.query).get("q", [""])[0]
+            self.open_orbit_search(unquote(query))
             return
         if url.startswith("orbit://history"):
             self.open_internal_page(HistoryPage(self), "История")
@@ -644,7 +664,7 @@ class OrbitBrowser(QMainWindow):
         self.open_internal_page(SupportPage(self), "Помощь")
 
     def open_admin_panel(self):
-        if self.is_guest or self.user.get("role", "user").lower() not in {"helper", "admin"}:
+        if self.is_guest or (self.user or {}).get("role", "user").lower() not in {"helper", "admin"}:
             return
         self.open_internal_page(AdminPanelPage(self), "Админ-панель")
 
@@ -667,7 +687,7 @@ class OrbitBrowser(QMainWindow):
             ("Диагностика", self.open_diagnostics),
             ("Настройки", self.open_settings),
         ]
-        if self.user.get("role", "user").lower() in {"helper", "admin"} and not self.is_guest:
+        if (self.user or {}).get("role", "user").lower() in {"helper", "admin"} and not self.is_guest:
             entries.insert(-1, ("Админ-панель", self.open_admin_panel))
         for text, fn in entries:
             action = QAction(text, self)
@@ -679,14 +699,15 @@ class OrbitBrowser(QMainWindow):
         self.open_internal_page(DiagnosticsPage(self), "Диагностика")
 
     def update_identity_ui(self):
-        name = self.user.get("display_name") or self.user.get("username", "Аккаунт")
+        user = self.user or {}
+        name = user.get("display_name") or user.get("username", "Аккаунт")
         if self.is_guest:
             name = "Войти"
         if hasattr(self, "account_button"):
             self.account_button.setText(name)
         if hasattr(self, "top_profile_button"):
             self.top_profile_button.setText(name)
-            title = self.user.get("equipped_title") or self.user.get("title") or "Explorer"
+            title = user.get("equipped_title") or user.get("title") or "Explorer"
             self.top_profile_button.setToolTip(f"{name} · {title}")
             try:
                 avatar_path = self.config.get("avatar_path", "")
@@ -808,24 +829,10 @@ def main():
         QMessageBox.warning(None, "Orbit API", f"Orbit API недоступен.\n\n{API_URL}")
     session = load_session()
     if not session:
-        session = {
-            "token": None,
-            "guest": True,
-            "user": {
-                "id": None,
-                "username": "Guest",
-                "display_name": "Гость",
-                "bio": "",
-                "title": "Гость",
-                "equipped_title": "Гость",
-                "unlocked_titles": [],
-                "xp": 0,
-                "profile_theme": config.get("theme", "VOID"),
-                "role": "guest",
-            },
-        }
-    local_profile = load_local_profile()
-    if local_profile:
+        # Никакого дефолтного/гостевого пользователя. До авторизации аккаунта нет.
+        session = {"token": None, "user": None}
+    local_profile = load_local_profile() if session.get("user") else {}
+    if local_profile and session.get("user"):
         merged = dict(session["user"])
         merged.update({k: v for k, v in local_profile.items() if k in {"display_name", "bio", "title", "profile_theme", "unlocked_titles", "equipped_title"}})
         session["user"] = merged

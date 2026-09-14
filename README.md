@@ -11,12 +11,12 @@ Search provider URLs:
 - Bing: https://www.bing.com/search?q=...
 - DuckDuckGo: https://duckduckgo.com/?q=...
 
-The Orbit site is served from the FastAPI service and `/admin` is protected by the Admin role. Public responses do not expose email addresses or database details. Secrets are Render environment variables only.
+The Orbit site is served from the FastAPI service and `/admin` is protected by the Admin role. Public responses do not expose email addresses or database details. Secrets are production server environment variables only.
 
 Roles: User, Helper, Admin.
 Titles are a separate system and are unlocked by achievements or roles. Users cannot type arbitrary titles into their profile.
 
-To bootstrap Larsenda as Admin without storing a password in Git, set these Render secrets:
+To bootstrap Larsenda as Admin without storing a password in Git, set these production server secrets:
 - `ORBIT_FOUNDER_EMAIL`
 - `ORBIT_FOUNDER_PASSWORD`
 
@@ -24,7 +24,7 @@ Android source is in `android/`; GitHub Actions builds both APK and AAB.
 
 ## Orbit AI / Gemini
 
-Set `GEMINI_API_KEY` in Render Environment Variables. The desktop client talks only to `/api/ai/*`; the Gemini key is never bundled into the EXE or sent to the client. The AI panel supports model selection, multi-turn chats, up to 4 image attachments per message, and a New Chat action.
+Set `GEMINI_API_KEY` in server environment variables. The desktop client talks only to `/api/ai/*`; the Gemini key is never bundled into the EXE or sent to the client. The AI panel supports model selection, multi-turn chats, up to 4 image attachments per message, and a New Chat action.
 
 ## Orbit Support
 
@@ -40,7 +40,7 @@ Set `GEMINI_API_KEY` in Render Environment Variables. The desktop client talks o
 
 ## Как включить Gemini
 
-1. Открой Render → Web Service Orbit API → Environment.
+1. Открой server environment variables.
 2. Добавь `GEMINI_API_KEY`.
 3. Deploy.
 4. В Orbit открой `Orbit AI`.
@@ -77,7 +77,7 @@ Android-клиент находится в `android/`. Сейчас это лё�
 
 Главная схема:
 
-`Windows EXE / Android APK / AAB -> Orbit API on Render -> PostgreSQL + Gemini API`
+`Windows EXE / Android APK / AAB -> Orbit API on production server -> PostgreSQL + Gemini API`
 
 Так один аккаунт может использоваться с ПК и телефона, а секреты остаются только на сервере.
 
@@ -85,7 +85,7 @@ Android-клиент находится в `android/`. Сейчас это лё�
 
 Официальный сайт раздачи Orbit Browser теперь встроен в FastAPI.
 
-Настройка Render:
+Настройка production server:
 - `ORBIT_DOWNLOAD_URL` — прямая ссылка на файл, который должен скачиваться кнопкой.
 - `ORBIT_DOWNLOAD_VERSION` — отображаемая версия.
 - `ORBIT_DOWNLOAD_FILE_NAME` — имя файла, например `OrbitBrowser-Setup.exe`.
@@ -143,7 +143,7 @@ Build v1.16.1: Windows uses PyInstaller onedir (small OrbitBrowser.exe + compani
 
 ## GitHub security
 
-This repository intentionally contains no production secrets. Put `DATABASE_URL`, `GEMINI_API_KEY`, founder credentials, analytics secrets and download URLs into Render Environment Variables or GitHub Secrets. Never commit `.env`, private keys, access tokens, session exports, or production credential files.
+This repository intentionally contains no production secrets. Put `DATABASE_URL`, `GEMINI_API_KEY`, founder credentials, analytics secrets and download URLs into server environment variables or GitHub Secrets. Never commit `.env`, private keys, access tokens, session exports, or production credential files.
 
 Before pushing, run `py -3.13 tools/scan_secrets.py`.
 
@@ -152,7 +152,7 @@ Before pushing, run `py -3.13 tools/scan_secrets.py`.
 Orbit Browser запускается как гость без регистрации. Без аккаунта доступны обычный браузинг, вкладки и локальные функции. Вход открывает облачные возможности: профиль, синхронизацию, достижения и титулы, обращения, серверные настройки и админ-функции по роли.
 
 ## Сайт и релизы
-Официальный сайт может вести пользователя напрямую на GitHub Releases. Задайте `ORBIT_RELEASE_URL` в Render. На сайте также размещено описание Orbit Browser и отметка, что проект создавался при участии ИИ.
+Официальный сайт может вести пользователя напрямую на GitHub Releases. Задайте `ORBIT_RELEASE_URL` в production server. На сайте также размещено описание Orbit Browser и отметка, что проект создавался при участии ИИ.
 
 
 ## Admin shortcut

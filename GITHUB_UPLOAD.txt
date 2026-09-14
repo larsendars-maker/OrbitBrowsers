@@ -9,7 +9,6 @@ GITHUB: что загружать
 - assets/ и иконки
 - build scripts
 - OrbitBrowser.iss
-- render.yaml
 - README.md
 - .env.example
 - version_info.txt

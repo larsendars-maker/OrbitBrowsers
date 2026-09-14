@@ -16,9 +16,9 @@ try:
 except Exception:
     genai = None
 
-APP_VERSION = "1.16.9"
-GEMINI_API_KEY = 
-DATABASE_URL = 
+APP_VERSION = "1.16.17"
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
+DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 FOUNDER_USERNAME = os.getenv("ORBIT_FOUNDER_USERNAME", "Larsenda").strip() or "Larsenda"
 FOUNDER_EMAIL = os.getenv("ORBIT_FOUNDER_EMAIL", "").strip().lower()
 FOUNDER_PASSWORD = os.getenv("ORBIT_FOUNDER_PASSWORD", "")
@@ -39,7 +39,7 @@ if WEB_ORIGINS:
 
 def db():
     if not DATABASE_URL:
-        
+        raise HTTPException(503, "Database is not configured")
     return psycopg.connect(DATABASE_URL)
 
 
@@ -99,6 +99,12 @@ def require_admin(auth):
     row = require_user(auth)
     if row[8].lower() != "admin":
         raise HTTPException(403, "Admin role required")
+    return row
+
+def require_helper_or_admin(auth):
+    row = require_user(auth)
+    if row[8].lower() not in {"helper", "admin"}:
+        raise HTTPException(403, "Helper or Admin role required")
     return row
 
 
@@ -610,7 +616,7 @@ def moderation_grant_achievement(user_id: int, data: ModerationAchievementReques
 
 @app.get("/api/admin/users")
 def admin_users(authorization: str | None = Header(default=None)):
-    require_admin(authorization)
+    require_helper_or_admin(authorization)
     with db() as conn, conn.cursor() as cur:
         cur.execute("SELECT id,username,display_name,role,title,created_at FROM users ORDER BY created_at DESC LIMIT 200")
         rows = cur.fetchall()
@@ -656,7 +662,7 @@ def admin_set_title(user_id: int, data: AdminTitleGrantRequest, authorization: s
 
 @app.get("/api/admin/titles")
 def admin_titles(authorization: str | None = Header(default=None)):
-    require_admin(authorization)
+    require_helper_or_admin(authorization)
     with db() as conn, conn.cursor() as cur:
         cur.execute("SELECT key,name_ru,name_en,description,achievement_key,role_required,is_active FROM titles ORDER BY id")
         rows = cur.fetchall()
@@ -667,7 +673,7 @@ def admin_titles(authorization: str | None = Header(default=None)):
 def ai_models(authorization: str | None = Header(default=None)):
     require_user(authorization)
     if not GEMINI_API_KEY:
-        
+        return {"ok": True, "configured": False, "models": GEMINI_MODELS}
     return {"ok": True, "configured": True, "models": GEMINI_MODELS}
 
 
@@ -675,7 +681,7 @@ def ai_models(authorization: str | None = Header(default=None)):
 def ai_chat(data: GeminiChatRequest, authorization: str | None = Header(default=None)):
     require_user(authorization)
     if not GEMINI_API_KEY:
-        
+        raise HTTPException(503, "Gemini is not configured")
     if genai is None:
         raise HTTPException(500, "google-genai is not installed on the server")
     model_ids = {m["id"] for m in GEMINI_MODELS}
@@ -748,7 +754,7 @@ def download_file(file_key: str, request: Request):
 
 @app.get("/api/admin/overview")
 def admin_overview(authorization: str | None = Header(default=None)):
-    require_admin(authorization)
+    require_helper_or_admin(authorization)
     with db() as conn, conn.cursor() as cur:
         cur.execute("SELECT COUNT(*) FROM users")
         users = cur.fetchone()[0]
@@ -763,7 +769,7 @@ def admin_overview(authorization: str | None = Header(default=None)):
 
 @app.get("/api/admin/site/stats")
 def admin_site_stats(authorization: str | None = Header(default=None)):
-    require_admin(authorization)
+    require_helper_or_admin(authorization)
     return {"ok": True, **site_stats()}
 
 @app.get("/robots.txt", response_class=PlainTextResponse)

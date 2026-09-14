@@ -16,7 +16,7 @@ PROFILE_FILE = DATA_DIR / "profile.json"
 
 DEFAULT_CONFIG = {
     "theme": "VOID",
-    "search_engine": "google",
+    "search_engine": "orbit",
     "site_theming": True,
     "animations": True,
     "weather_city": "Москва",
@@ -70,7 +70,7 @@ def load_config():
     if result.get("theme") not in {"VOID", "ICE", "MIDNIGHT", "EMBER"}:
         result["theme"] = "VOID"
     if result.get("search_engine") not in {"google", "bing", "duckduckgo", "orbit"}:
-        result["search_engine"] = "google"
+        result["search_engine"] = "orbit"
     write_json(CONFIG_FILE, result)
     return result
 
