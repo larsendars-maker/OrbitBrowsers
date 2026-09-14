@@ -515,7 +515,9 @@ class OrbitBrowser(QMainWindow):
         "google": "https://www.google.com/search?q=",
         "bing": "https://www.bing.com/search?q=",
         "duckduckgo": "https://duckduckgo.com/?q=",
-        "orbit": "orbit://search?q=",
+        # Orbit — системный режим поиска. Пока собственного индекса нет, Orbit
+        # использует внешний results endpoint внутри текущей вкладки Orbit.
+        "orbit": "https://html.duckduckgo.com/html/?q=",
     }
 
     def search_url(self, query):

@@ -590,14 +590,16 @@ class SearchPage(QWidget):
         query = self.input.text().strip()
         if not query:
             return
+
+        # Orbit остаётся поисковиком по умолчанию.
+        # Пока собственного поискового индекса Orbit нет, запрос открывается
+        # через DuckDuckGo в текущей вкладке Orbit, без отдельного окна.
         if self.force_orbit or self.browser.config.get("search_engine", "orbit") == "orbit":
-            # Orbit Search — внутренняя поисковая страница Orbit.
-            # Не подменяем её Google/Bing и не открываем внешнее окно.
-            self.results.clear()
-            self.results.addItem(QListWidgetItem(f"Orbit Search\n\nЗапрос: {query}"))
-            self.results.addItem(QListWidgetItem("Результаты будут подключены к Orbit Search API."))
-            self.browser.address.setText("orbit://search?q=" + quote(query))
+            from urllib.parse import quote
+            target = "https://html.duckduckgo.com/html/?q=" + quote(query)
+            self.browser.open_url(target)
             return
+
         self.browser.open_url(self.browser.search_url(query))
 
     def open_item(self, item):
