@@ -18,7 +18,7 @@ from orbit_storage import load_config, save_config, load_local_profile, save_loc
 from orbit_ui import THEMES, stylesheet, tr
 
 APP_NAME = "Orbit Browser"
-APP_VERSION = "1.16.8"
+APP_VERSION = "1.16.15"
 API_URL = "https://orbit-api-9uqa.onrender.com"
 GITHUB_REPO = "larsendars-maker/OrbitBrowsers"
 WINDOWS_APP_USER_MODEL_ID = "Larsenda.OrbitBrowser"
@@ -225,6 +225,13 @@ class OrbitBrowser(QMainWindow):
         self.sidebar_toggle_button.clicked.connect(self.toggle_sidebar)
         top.addWidget(self.sidebar_toggle_button)
 
+        # Restore the sidebar visibility saved by the user.
+        if self.config.get("sidebar_hidden", False):
+            self.sidebar.setMinimumWidth(0)
+            self.sidebar.setMaximumWidth(0)
+            self.sidebar.hide()
+            self.sidebar_toggle_button.setToolTip("Показать боковую панель")
+
         for text, fn in [
             ("‹", self.go_back),
             ("›", self.go_forward),
@@ -240,11 +247,6 @@ class OrbitBrowser(QMainWindow):
         self.address.setPlaceholderText("Введите запрос или URL...")
         self.address.returnPressed.connect(self.navigate)
         top.addWidget(self.address, 1)
-
-        new_tab = QPushButton("+")
-        new_tab.setFixedSize(36, 36)
-        new_tab.clicked.connect(lambda: self.new_browser_tab())
-        top.addWidget(new_tab)
 
         profile = QPushButton(self.user.get("display_name") or self.user.get("username", "Аккаунт"))
         profile.setObjectName("topProfile")
@@ -289,11 +291,31 @@ class OrbitBrowser(QMainWindow):
 
         root.addLayout(content, 1)
     def toggle_sidebar(self):
-        if not hasattr(self, "sidebar"):
+        if not hasattr(self, "sidebar") or not hasattr(self, "sidebar_toggle_button"):
             return
-        hidden = not self.sidebar.isVisible()
-        self.sidebar.setVisible(not hidden)
-        self.sidebar_toggle_button.setToolTip("Показать боковую панель" if hidden else "Скрыть боковую панель")
+
+        # Hide the sidebar by collapsing its layout slot as well as the widget.
+        # This makes the content area expand immediately and avoids the sidebar
+        # keeping an invisible 208px gap in the layout.
+        currently_visible = self.sidebar.isVisible() and self.sidebar.maximumWidth() > 0
+        should_hide = currently_visible
+
+        if should_hide:
+            self.sidebar.setMaximumWidth(0)
+            self.sidebar.setMinimumWidth(0)
+            self.sidebar.hide()
+            self.config["sidebar_hidden"] = True
+            self.sidebar_toggle_button.setText("☰")
+            self.sidebar_toggle_button.setToolTip("Показать боковую панель")
+        else:
+            self.sidebar.show()
+            self.sidebar.setMinimumWidth(208)
+            self.sidebar.setMaximumWidth(208)
+            self.config["sidebar_hidden"] = False
+            self.sidebar_toggle_button.setText("☰")
+            self.sidebar_toggle_button.setToolTip("Скрыть боковую панель")
+
+        self.sidebar.updateGeometry()
         save_config(self.config)
 
     def sync_sidebar_weather(self, text):
@@ -590,7 +612,16 @@ class OrbitBrowser(QMainWindow):
 
     def open_profile_page(self):
         if self.is_guest:
-            QMessageBox.information(self, "Orbit Account", "Вы используете Orbit как гость.\n\nРегистрация не обязательна для обычного браузинга. После входа станут доступны аккаунт, синхронизация, титулы, достижения, обращения и другие облачные функции.")
+            # Для гостя верхняя кнопка является компактной точкой входа.
+            # Открываем официальный Orbit-сайт в текущей вкладке, где доступны вход и регистрация.
+            self.show_web_area()
+            browser = self.current_browser()
+            login_url = self.API_URL.rstrip("/") + "/"
+            if not browser:
+                browser = self.new_browser_tab(login_url)
+            else:
+                browser.setUrl(QUrl(login_url))
+            self.address.setText(login_url)
             return
         self.open_internal_page(ProfilePage(self), "Профиль")
 
@@ -650,7 +681,7 @@ class OrbitBrowser(QMainWindow):
     def update_identity_ui(self):
         name = self.user.get("display_name") or self.user.get("username", "Аккаунт")
         if self.is_guest:
-            name = "Гость · Войти"
+            name = "Войти"
         if hasattr(self, "account_button"):
             self.account_button.setText(name)
         if hasattr(self, "top_profile_button"):

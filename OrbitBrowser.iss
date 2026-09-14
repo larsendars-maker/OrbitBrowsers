@@ -1,5 +1,5 @@
 #define MyAppName "Orbit Browser"
-#define MyAppVersion "1.16.4"
+#define MyAppVersion "1.16.15"
 #define MyAppPublisher "Orbit Browsers"
 #define MyAppExeName "OrbitBrowser.exe"
 #define MyAppInstallDir "{autopf}\OrbitBrowsers"
@@ -37,7 +37,7 @@ begin
 end;
 
 [Files]
-Source: "build_out\OrbitBrowser\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "build_out\OrbitBrowser.exe"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{autodesktop}\Orbit Browser"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; IconFilename: "{app}\{#MyAppExeName}"

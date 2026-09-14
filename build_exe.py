@@ -5,14 +5,25 @@ import sys
 ROOT = Path(__file__).resolve().parent
 ICON = ROOT / 'assets' / 'orbit_icon.ico'
 VERSION = ROOT / 'version_info.txt'
+DIST = ROOT / 'build_out'
+WORK = ROOT / 'build_work'
+SPEC = ROOT / 'build_spec'
 
-subprocess.check_call([
+cmd = [
     sys.executable, '-m', 'PyInstaller',
-    '--noconfirm', '--clean', '--windowed', '--onedir', '--noconsole',
-    '--name', 'OrbitBrowser', '--distpath', str(ROOT / 'build_out'), '--workpath', str(ROOT / 'build_work'), '--specpath', str(ROOT / 'build_spec'),
+    '--noconfirm', '--clean', '--windowed', '--onefile', '--noconsole',
+    '--name', 'OrbitBrowser',
+    '--distpath', str(DIST),
+    '--workpath', str(WORK),
+    '--specpath', str(SPEC),
     '--add-data', f'{ROOT / "assets"};assets',
     '--icon', str(ICON),
     '--version-file', str(VERSION),
     str(ROOT / 'orbit_browser.py'),
-], cwd=ROOT)
-print('EXE: build_out/OrbitBrowser/OrbitBrowser.exe')
+]
+
+subprocess.check_call(cmd, cwd=ROOT)
+exe = DIST / 'OrbitBrowser.exe'
+if not exe.exists():
+    raise SystemExit('OrbitBrowser.exe was not produced')
+print(f'EXE: {exe}')

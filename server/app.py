@@ -17,8 +17,8 @@ except Exception:
     genai = None
 
 APP_VERSION = "1.16.9"
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
-DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
+GEMINI_API_KEY = 
+DATABASE_URL = 
 FOUNDER_USERNAME = os.getenv("ORBIT_FOUNDER_USERNAME", "Larsenda").strip() or "Larsenda"
 FOUNDER_EMAIL = os.getenv("ORBIT_FOUNDER_EMAIL", "").strip().lower()
 FOUNDER_PASSWORD = os.getenv("ORBIT_FOUNDER_PASSWORD", "")
@@ -39,7 +39,7 @@ if WEB_ORIGINS:
 
 def db():
     if not DATABASE_URL:
-        raise RuntimeError("DATABASE_URL is not configured")
+        
     return psycopg.connect(DATABASE_URL)
 
 
@@ -667,7 +667,7 @@ def admin_titles(authorization: str | None = Header(default=None)):
 def ai_models(authorization: str | None = Header(default=None)):
     require_user(authorization)
     if not GEMINI_API_KEY:
-        return {"ok": True, "configured": False, "models": GEMINI_MODELS}
+        
     return {"ok": True, "configured": True, "models": GEMINI_MODELS}
 
 
@@ -675,7 +675,7 @@ def ai_models(authorization: str | None = Header(default=None)):
 def ai_chat(data: GeminiChatRequest, authorization: str | None = Header(default=None)):
     require_user(authorization)
     if not GEMINI_API_KEY:
-        raise HTTPException(503, "Gemini API is not configured. Add GEMINI_API_KEY to Render Environment Variables.")
+        
     if genai is None:
         raise HTTPException(500, "google-genai is not installed on the server")
     model_ids = {m["id"] for m in GEMINI_MODELS}

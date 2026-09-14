@@ -1,71 +1,28 @@
-# Python
 __pycache__/
 *.py[cod]
-*$py.class
-.venv/
-venv/
-env/
-.pytest_cache/
-.mypy_cache/
-
-# Build outputs
-build/
-dist/
-gotovo/
-installer/
-
-# Python packaging / local artifacts
-*.egg-info/
-*.spec.bak
-
-# Windows binaries / installers
-*.exe
-*.msi
-*.apk
-*.aab
-
-# Archives / logs
-*.zip
-*.7z
-*.rar
-*.log
-
-# IDEs
-.vscode/
-.idea/
-*.iml
-
-# Local config / secrets
 .env
 .env.*
 !.env.example
-
-# OS files
-.DS_Store
-Thumbs.db
-Desktop.ini
-# Secrets / credentials (never commit)
 *.pem
 *.key
 *.p12
-*.pfx
 *.jks
 *.keystore
-credentials.json
-secrets.json
-service-account*.json
-**/secrets/**
-**/credentials/**
-.env.local
-.env.production
-.env.development
-*.token
-*.secret
+gotovo/
+build_out/
+build_work/
+build_spec/
+dist/
+build/
+.buildtools/
+*.exe
+*.apk
+*.aab
+*.zip
+# Secrets
+*.pfx
+secrets/
+credentials/
 
-# Generated releases / local archives
-release/
-releases/
-artifacts/
-*.dmg
-*.deb
-*.AppImage
+# Build outputs
+*.pyc

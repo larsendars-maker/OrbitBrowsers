@@ -1,3 +1,7 @@
+
+## v1.16.14 UI
+- Removed the top-right `+` new-tab button.
+- Guest account control now displays only `Войти` and opens the Orbit account site.
 # Orbit Browser 1.15.0
 
 Google, Bing and DuckDuckGo are opened directly in Chromium with normal search URLs. Orbit does not scrape result pages or attempt to bypass CAPTCHA/anti-bot systems; the providers see a normal browser session.
