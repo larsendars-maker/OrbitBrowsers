@@ -4,12 +4,12 @@ on:
   workflow_dispatch:
   push:
     paths:
-      - "*.py"
-      - "orbit_core.py"
+      - "**/*.py"
       - "assets/**"
       - "web/**"
       - ".github/workflows/build-windows.yml"
       - "OrbitBrowser.iss"
+      - "version_info.txt"
 
 permissions:
   contents: write
@@ -34,13 +34,17 @@ jobs:
       - name: Build EXE
         shell: pwsh
         run: |
+          $root = (Get-Location).Path
+          $assets = Join-Path $root "assets"
+          $icon = Join-Path $assets "orbit_icon.ico"
+          $version = Join-Path $root "version_info.txt"
           python -m PyInstaller --noconfirm --clean --windowed --onefile --noconsole `
             --name OrbitBrowser `
-            --distpath build_out --workpath build_work --specpath build_spec `
-            --add-data "assets;assets" `
-            --icon "assets/orbit_icon.ico" `
-            --version-file "version_info.txt" `
-            "orbit_browser.py"
+            --distpath "$root\build_out" --workpath "$root\build_work" --specpath "$root\build_spec" `
+            --add-data "$assets;assets" `
+            --icon "$icon" `
+            --version-file "$version" `
+            "$root\orbit_browser.py"
           if (!(Test-Path "build_out/OrbitBrowser.exe")) { throw "OrbitBrowser.exe not produced" }
           Copy-Item "build_out/OrbitBrowser.exe" "build_out/OrbitBrowser-Portable.exe" -Force
 

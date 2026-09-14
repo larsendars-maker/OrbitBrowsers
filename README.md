@@ -13,7 +13,7 @@
 
 Windows и Android собираются через GitHub Actions.
 
-## v1.11 Final Polish
+## v1.12 Final Polish
 
 Orbit 1.11 focuses on speed, reliability, single-window UX, session recovery, shortcuts, security cleanup, Windows + Android CI and unified release behavior.
 
@@ -22,7 +22,7 @@ Default search engine: **Google**.
 Windows and Android builds are produced by GitHub Actions.
 
 
-## v1.11 Final Polish
+## v1.12 Final Polish
 
 ### Быстродействие
 Orbit запускает интерфейс сразу и выполняет сеть, синхронизацию и update-check в фоне. Пользовательский переключатель медленного режима удалён.

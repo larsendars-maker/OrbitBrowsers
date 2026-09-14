@@ -1,5 +1,5 @@
 #define MyAppName "Orbit Browser"
-#define MyAppVersion "1.11"
+#define MyAppVersion "1.12"
 #define MyAppPublisher "Orbit Browsers"
 #define MyAppExeName "OrbitBrowser.exe"
 #define MyAppInstallDir "{autopf}\OrbitBrowsers"

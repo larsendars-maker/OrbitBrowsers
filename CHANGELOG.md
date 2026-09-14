@@ -1,5 +1,15 @@
 # Orbit Browser Changelog
 
+## 1.12.1 — Build Fix
+
+- Исправлена Kotlin-ошибка в `MainActivity.kt` из-за затенения переменной `text`.
+- Android version metadata приведены к 1.12.
+- Исправлена Windows PyInstaller-сборка: assets/icon/version file передаются абсолютными путями, чтобы `--specpath build_spec` не искал `build_spec/assets`.
+- Inno Setup обновлён до 1.12.
+- Сайт обновлён до 1.12, включая прямые Windows/Android download links, games pages и changelog.
+
+# Orbit Browser Changelog
+
 ## 1.11 — Final Polish
 
 ### Performance

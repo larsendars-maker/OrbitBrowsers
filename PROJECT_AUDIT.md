@@ -1,4 +1,4 @@
-# Orbit Browser v1.11 — Project Audit
+# Orbit Browser v1.12 — Project Audit
 
 ## Verified in this workspace
 - Python source files compile with `py_compile`.

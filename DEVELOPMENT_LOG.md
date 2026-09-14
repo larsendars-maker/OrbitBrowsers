@@ -1,4 +1,4 @@
-# Orbit Browser — Development Log v1.11
+# Orbit Browser — Development Log v1.12
 
 ## Архитектура
 - Рабочая Windows-архитектура возвращена на функциональную single-window основу с внутренними вкладками.
