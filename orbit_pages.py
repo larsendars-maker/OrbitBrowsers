@@ -2052,3 +2052,42 @@ def _settings_toggle_nav_hidden(self, key, button):
     self.browser.apply_language()
 
 SettingsPage.toggle_nav_hidden = _settings_toggle_nav_hidden
+
+
+class ChangelogPage(QWidget):
+    def __init__(self, browser):
+        super().__init__()
+        self.browser=browser
+        layout=QVBoxLayout(self)
+        layout.setContentsMargins(50,40,50,35)
+        layout.setSpacing(14)
+        title=QLabel("Журнал изменений")
+        title.setObjectName("pageTitle")
+        layout.addWidget(title)
+        intro=QLabel("Orbit Browser 1.0 — первый публичный релиз. Следующие версии будут выходить по схеме 1.1, 1.2 и далее до 2.0.")
+        intro.setWordWrap(True); intro.setObjectName("muted"); layout.addWidget(intro)
+        entries=[
+            ("1.0", ["Первый публичный релиз", "Windows + Android", "Orbit Search по умолчанию", "Профили, история и загрузки", "Темы и Orbit Studio", "Синхронизация", "Offline: Snake и Block Blast"]),
+            ("1.1", ["План: улучшенная синхронизация и загрузки"]),
+            ("1.2", ["План: развитие профилей и тем"]),
+            ("1.3", ["План: производительность и офлайн-режим"]),
+            ("1.4", ["План: новые Orbit Tools"]),
+            ("1.5", ["План: улучшение Android"]),
+            ("1.6", ["План: Workspaces и Spaces"]),
+            ("1.7", ["План: приватность и безопасность"]),
+            ("1.8", ["План: VPN и connection resilience"]),
+            ("1.9", ["План: подготовка крупного обновления"]),
+            ("2.0", ["План: крупное обновление экосистемы Orbit"]),
+        ]
+        scroll=QScrollArea(); scroll.setWidgetResizable(True)
+        inner=QWidget(); box=QVBoxLayout(inner); box.setSpacing(10)
+        for ver, items in entries:
+            frame=QFrame(); frame.setObjectName("card")
+            v=QVBoxLayout(frame); h=QHBoxLayout()
+            lab=QLabel(ver); lab.setProperty("accent", True); lab.setStyleSheet("font-size:20px;font-weight:800;")
+            h.addWidget(lab); h.addStretch(); v.addLayout(h)
+            for item in items:
+                x=QLabel("• "+item); x.setWordWrap(True); x.setObjectName("muted"); v.addWidget(x)
+            box.addWidget(frame)
+        box.addStretch(); scroll.setWidget(inner); layout.addWidget(scroll,1)
+        fade_in(self)

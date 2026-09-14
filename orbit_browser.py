@@ -13,12 +13,12 @@ from PySide6.QtWebEngineCore import QWebEnginePage, QWebEngineProfile, QWebEngin
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import QApplication, QFrame, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMessageBox, QPushButton, QTabWidget, QVBoxLayout, QWidget, QSplashScreen, QProgressDialog, QFileDialog, QMenu, QStyle, QTabBar
 
-from orbit_pages import HomePage, HistoryPage, BookmarksPage, NotesPage, DownloadsPage, SettingsPage, SearchPage, DiagnosticsPage, ProfilePage, LoginPage, GeminiPage, SupportPage, AdminPanelPage
+from orbit_pages import HomePage, HistoryPage, BookmarksPage, NotesPage, DownloadsPage, SettingsPage, SearchPage, DiagnosticsPage, ProfilePage, LoginPage, GeminiPage, SupportPage, AdminPanelPage, ChangelogPage, ChangelogPage
 from orbit_storage import load_config, save_config, load_local_profile, save_local_profile, add_history, add_download, build_sync_bundle, apply_sync_bundle, sync_state_signature
 from orbit_ui import THEMES, stylesheet, tr
 
 APP_NAME = "Orbit Browser"
-APP_VERSION = "1.16.25"
+APP_VERSION = "1.0"
 API_URL = "https://orbit-api-9uqa.onrender.com"
 GITHUB_REPO = "larsendars-maker/OrbitBrowsers"
 WINDOWS_APP_USER_MODEL_ID = "Larsenda.OrbitBrowser"
@@ -674,6 +674,9 @@ class OrbitBrowser(QMainWindow):
         if url.startswith("orbit://support"):
             self.open_support()
             return
+        if url.startswith("orbit://changelog"):
+            self.open_internal_page(ChangelogPage(self), "Журнал изменений")
+            return
         self.show_web_area()
         browser = self.current_browser()
         if not browser:
@@ -773,6 +776,9 @@ class OrbitBrowser(QMainWindow):
         else:
             browser.setUrl(QUrl(gemini_url))
         self.address.setText(gemini_url)
+
+    def open_changelog(self):
+        self.open_internal_page(ChangelogPage(self), "Журнал изменений")
 
     def open_support(self):
         if self.is_guest:

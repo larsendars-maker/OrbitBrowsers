@@ -31,12 +31,13 @@ import java.util.concurrent.Executors
 
 class MainActivity : ComponentActivity() {
     private val api = "https://orbit-api-9uqa.onrender.com"
-    private val appVersion = "1.16.25"
+    private val appVersion = "1.0"
     private lateinit var root: LinearLayout
     private lateinit var tabsRow: LinearLayout
     private lateinit var address: EditText
     private lateinit var title: TextView
     private lateinit var content: FrameLayout
+    private lateinit var bottomNav: LinearLayout
     private val tabs = mutableListOf<WebView>()
     private var current = -1
     private val purple = Color.rgb(155, 124, 255)
@@ -98,6 +99,26 @@ class MainActivity : ComponentActivity() {
         root.addView(top)
         content = FrameLayout(this)
         root.addView(content, LinearLayout.LayoutParams(-1, 0, 1f))
+        bottomNav = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            setPadding(8, 6, 8, 8)
+            setBackgroundColor(surface)
+        }
+        fun navButton(label: String, action: () -> Unit) = TextView(this).apply {
+            text = label
+            textSize = 11f
+            gravity = Gravity.CENTER
+            setTextColor(this@MainActivity.muted)
+            setPadding(6, 5, 6, 5)
+            setOnClickListener { action() }
+        }
+        bottomNav.addView(navButton("⌂\nГлавная") { showBrowser() }, LinearLayout.LayoutParams(0, 54, 1f))
+        bottomNav.addView(navButton("★\nЗакладки") { showBookmarksPanel() }, LinearLayout.LayoutParams(0, 54, 1f))
+        bottomNav.addView(navButton("◷\nИстория") { showHistoryPanel() }, LinearLayout.LayoutParams(0, 54, 1f))
+        bottomNav.addView(navButton("⇩\nЗагрузки") { showDownloadsPanel() }, LinearLayout.LayoutParams(0, 54, 1f))
+        bottomNav.addView(navButton("●\nПрофиль") { showProfile() }, LinearLayout.LayoutParams(0, 54, 1f))
+        root.addView(bottomNav, LinearLayout.LayoutParams(-1, 62))
     }
 
     private fun showWelcome() {
@@ -124,7 +145,7 @@ class MainActivity : ComponentActivity() {
             setSupportZoom(true)
             setSupportMultipleWindows(false)
             javaScriptCanOpenWindowsAutomatically = false
-            userAgentString = userAgentString + " OrbitBrowser/1.16.25"
+            userAgentString = userAgentString + " OrbitBrowser/1.0"
         }
         CookieManager.getInstance().setAcceptCookie(true)
         v.webViewClient = object : WebViewClient() {
@@ -199,6 +220,85 @@ class MainActivity : ComponentActivity() {
         var q=address.text.toString().trim(); if(q.isEmpty()) return
         val u=when { q.startsWith("http://")||q.startsWith("https://")->q; q.contains(".")&&!q.contains(" ")->"https://$q"; else->"https://html.duckduckgo.com/html/?q="+URLEncoder.encode(q,"UTF-8") }
         currentWeb()?.loadUrl(u) ?: addTab(u)
+    }
+
+    private fun panel(titleText: String): LinearLayout {
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(20, 24, 20, 18)
+            setBackgroundResource(com.orbit.browser.R.drawable.orbit_root_bg)
+            val h = TextView(this@MainActivity).apply {
+                text = titleText
+                textSize = 26f
+                setTextColor(this@MainActivity.text)
+                typeface = Typeface.DEFAULT_BOLD
+                setPadding(0, 0, 0, 14)
+            }
+            addView(h)
+        }
+    }
+
+    private fun showHistoryPanel() {
+        val p = panel("История")
+        val items = loadHistory()
+        if (items.length() == 0) {
+            p.addView(TextView(this).apply { text = "История пока пуста."; setTextColor(muted); textSize = 15f })
+        } else {
+            for (i in items.length() - 1 downTo maxOf(0, items.length() - 30)) {
+                val item = items.optJSONObject(i) ?: continue
+                val url = item.optString("url")
+                val name = item.optString("title", url)
+                val row = TextView(this).apply {
+                    text = "$name\n$url"
+                    setTextColor(this@MainActivity.text)
+                    setPadding(12, 12, 12, 12)
+                    setBackgroundColor(surface)
+                    setOnClickListener { if (url.isNotBlank()) { showBrowser(); currentWeb()?.loadUrl(url) } }
+                }
+                p.addView(row, LinearLayout.LayoutParams(-1, LinearLayout.LayoutParams.WRAP_CONTENT).apply { bottomMargin = 8 })
+            }
+        }
+        val back = Button(this).apply { text = "← Браузер"; setOnClickListener { showBrowser() } }
+        p.addView(back)
+        content.removeAllViews(); content.addView(p, FrameLayout.LayoutParams(-1, -1))
+    }
+
+    private fun showBookmarksPanel() {
+        val p = panel("Закладки")
+        val items = loadBookmarks()
+        if (items.length() == 0) {
+            p.addView(TextView(this).apply { text = "Закладок пока нет."; setTextColor(muted); textSize = 15f })
+        } else {
+            for (i in 0 until items.length()) {
+                val item = items.optJSONObject(i) ?: continue
+                val url = item.optString("url")
+                val name = item.optString("title", url)
+                val b = Button(this).apply { text = name; setOnClickListener { showBrowser(); currentWeb()?.loadUrl(url) } }
+                p.addView(b)
+            }
+        }
+        val back = Button(this).apply { text = "← Браузер"; setOnClickListener { showBrowser() } }
+        p.addView(back)
+        content.removeAllViews(); content.addView(p, FrameLayout.LayoutParams(-1, -1))
+    }
+
+    private fun showDownloadsPanel() {
+        val p = panel("Загрузки")
+        val manager = getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+        val cursor = manager.query(DownloadManager.Query())
+        var count = 0
+        cursor.use {
+            val idxTitle = it.getColumnIndex(DownloadManager.COLUMN_TITLE)
+            while (it.moveToNext()) {
+                count++
+                val name = if (idxTitle >= 0) it.getString(idxTitle) else "Загрузка"
+                p.addView(TextView(this).apply { text = name; setTextColor(this@MainActivity.text); setPadding(12, 10, 12, 10) })
+            }
+        }
+        if (count == 0) p.addView(TextView(this).apply { text = "Загрузок пока нет."; setTextColor(muted); textSize = 15f })
+        val back = Button(this).apply { text = "← Браузер"; setOnClickListener { showBrowser() } }
+        p.addView(back)
+        content.removeAllViews(); content.addView(p, FrameLayout.LayoutParams(-1, -1))
     }
 
     private fun showProfile() {

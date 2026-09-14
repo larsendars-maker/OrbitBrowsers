@@ -17,13 +17,13 @@ try:
 except Exception:
     genai = None
 
-APP_VERSION = "1.16.21"
+APP_VERSION = "1.0"
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
 DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 FOUNDER_USERNAME = os.getenv("ORBIT_FOUNDER_USERNAME", "Larsenda").strip() or "Larsenda"
 FOUNDER_EMAIL = os.getenv("ORBIT_FOUNDER_EMAIL", "").strip().lower()
 FOUNDER_PASSWORD = os.getenv("ORBIT_FOUNDER_PASSWORD", "")
-ANALYTICS_SECRET = os.getenv("ORBIT_ANALYTICS_SECRET", "orbit-dev-analytics-change-me")
+ANALYTICS_SECRET = os.getenv("ORBIT_ANALYTICS_SECRET", "").strip() or secrets.token_hex(32)
 DOWNLOAD_URL = os.getenv("ORBIT_DOWNLOAD_URL", "").strip()
 RELEASE_URL = os.getenv("ORBIT_RELEASE_URL", "https://github.com/larsendars-maker/OrbitBrowsers/releases/tag/Windows").strip()
 WINDOWS_DOWNLOAD_URL = os.getenv("ORBIT_WINDOWS_DOWNLOAD_URL", "https://github.com/larsendars-maker/OrbitBrowsers/releases/download/Windows/OrbitBrowser-Setup.exe").strip()
