@@ -41,11 +41,22 @@ async function load(){
     document.getElementById('downloads').textContent=(stats.downloads||0).toLocaleString('ru-RU');
     document.getElementById('uniqueDownloads').textContent=(stats.unique_downloads||0).toLocaleString('ru-RU');
     document.getElementById('users').textContent=(stats.users||0).toLocaleString('ru-RU');
-    const file=files.files&&files.files[0];
-    if(file){document.getElementById('fileName').textContent=file.file_name||file.name;document.getElementById('version').textContent='Версия '+file.version;}
-    else{
-      for(const id of ['downloadBtn','heroDownload']){const e=document.getElementById(id);e.classList.add('disabled');e.removeAttribute('href');e.textContent='Файл пока не подключён';}
+    const list=Array.isArray(files.files)?files.files:[];
+    const win=list.find(x=>x.key==='orbit-browser-windows');
+    const android=list.find(x=>x.key==='orbit-browser-android');
+    const downloadBtn=document.getElementById('downloadBtn');
+    const heroDownload=document.getElementById('heroDownload');
+    const androidBtn=document.getElementById('androidBtn');
+    if(win){
+      downloadBtn.href=win.download_url;
+      heroDownload.href=win.download_url;
+      document.getElementById('fileName').textContent=win.file_name||win.name;
+      document.getElementById('version').textContent='Версия '+(win.version||'—');
+    } else {
+      for(const e of [downloadBtn,heroDownload]){e.classList.add('disabled');e.removeAttribute('href');e.textContent='Windows пока недоступен';}
     }
+    if(android){ androidBtn.href=android.download_url; }
+    else { androidBtn.classList.add('disabled'); androidBtn.removeAttribute('href'); androidBtn.textContent='Android пока недоступен'; }
   }catch(e){console.warn(e)}
 }
 document.getElementById('orbitMobileToggle').addEventListener('click',()=>{document.documentElement.classList.toggle('orbit-panel-hidden');});

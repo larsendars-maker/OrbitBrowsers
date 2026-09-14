@@ -1,3 +1,5 @@
+# Orbit Browser 1.0.0 — First public release
+
 
 ## v1.16.14 UI
 - Removed the top-right `+` new-tab button.
@@ -20,7 +22,7 @@ To bootstrap Larsenda as Admin without storing a password in Git, set these prod
 - `ORBIT_FOUNDER_EMAIL`
 - `ORBIT_FOUNDER_PASSWORD`
 
-Android source is in `android/`; GitHub Actions builds both APK and AAB.
+Android source is in `android/`; GitHub Actions builds the Android APK. The repository is GitHub-ready for the 1.0.0 release.
 
 ## Orbit AI / Gemini
 

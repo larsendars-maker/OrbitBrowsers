@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
     QScrollArea,
     QListWidget,
     QListWidgetItem,
+    QAbstractItemView,
     QMenu,
     QPushButton,
     QSizePolicy,
@@ -671,6 +672,8 @@ class HistoryPage(QWidget):
         layout.addLayout(header)
         self.list = QListWidget()
         self.list.setSpacing(8)
+        self.list.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+        self.list.setAlternatingRowColors(False)
         self.list.itemDoubleClicked.connect(self.open_item)
         layout.addWidget(self.list, 1)
         actions = QHBoxLayout()
@@ -689,7 +692,10 @@ class HistoryPage(QWidget):
         for entry in items:
             title = entry.get("title") or entry.get("url") or "Без названия"
             url = entry.get("url", "")
-            text = f"{title}\n{url}"
+            import datetime
+            ts = entry.get("timestamp") or 0
+            when = datetime.datetime.fromtimestamp(ts).strftime("%d.%m.%Y %H:%M") if ts else ""
+            text = f"{title}\n{url}\n{when}"
             row = QListWidgetItem(text)
             row.setData(Qt.ItemDataRole.UserRole, url)
             self.list.addItem(row)
@@ -711,9 +717,14 @@ class HistoryPage(QWidget):
         if url: self.browser.open_url(url)
 
     def remove_selected(self):
-        url = self.selected_url()
-        if not url: return
-        items = [x for x in load_history() if x.get("url") != url]
+        urls = []
+        for item in self.list.selectedItems():
+            value = item.data(Qt.ItemDataRole.UserRole)
+            if value:
+                urls.append(value)
+        if not urls:
+            return
+        items = [x for x in load_history() if x.get("url") not in set(urls)]
         from orbit_storage import save_history
         save_history(items)
         self.refresh()
@@ -813,7 +824,11 @@ class DownloadsPage(QWidget):
         refresh.clicked.connect(self.refresh)
         header.addWidget(refresh)
         layout.addLayout(header)
-        self.list = QListWidget(); self.list.setSpacing(8); layout.addWidget(self.list, 1)
+        self.list = QListWidget()
+        self.list.setSpacing(8)
+        self.list.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+        self.list.setAlternatingRowColors(False)
+        layout.addWidget(self.list, 1)
         self.list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.list.customContextMenuRequested.connect(self.show_file_menu)
         actions = QHBoxLayout()
@@ -844,9 +859,17 @@ class DownloadsPage(QWidget):
             row.setData(Qt.ItemDataRole.UserRole, path)
             self.list.addItem(row)
 
+    def selected_paths(self):
+        paths = []
+        for item in self.list.selectedItems():
+            value = item.data(Qt.ItemDataRole.UserRole)
+            if value:
+                paths.append(value)
+        return paths
+
     def selected_path(self):
-        item = self.list.currentItem()
-        return item.data(Qt.ItemDataRole.UserRole) if item else ""
+        paths = self.selected_paths()
+        return paths[0] if paths else ""
 
     def open_item(self, item):
         self.open_path(item.data(Qt.ItemDataRole.UserRole) or "")
@@ -883,16 +906,20 @@ class DownloadsPage(QWidget):
             self.delete_file_and_record()
 
     def delete_file_and_record(self):
-        path = self.selected_path()
-        if not path:
+        paths = self.selected_paths()
+        if not paths:
             return
-        try:
-            if os.path.exists(path):
-                os.remove(path)
-            remove_download(path)
-            self.refresh()
-        except Exception as exc:
-            QMessageBox.warning(self, "Orbit", f"Не удалось удалить файл:\n{exc}")
+        errors = []
+        for path in paths:
+            try:
+                if os.path.exists(path):
+                    os.remove(path)
+                remove_download(path)
+            except Exception as exc:
+                errors.append(f"{os.path.basename(path)}: {exc}")
+        self.refresh()
+        if errors:
+            QMessageBox.warning(self, "Orbit", "Не удалось удалить некоторые файлы:\n" + "\n".join(errors))
 
     def open_path(self, path):
         if not path or not os.path.exists(path): return
@@ -927,9 +954,12 @@ class DownloadsPage(QWidget):
             QMessageBox.warning(self, "Orbit", f"Не удалось переименовать файл:\n{exc}")
 
     def remove_selected(self):
-        path = self.selected_path()
-        if not path: return
-        remove_download(path); self.refresh()
+        paths = self.selected_paths()
+        if not paths:
+            return
+        for path in paths:
+            remove_download(path)
+        self.refresh()
 
     def virustotal_selected(self):
         path = self.selected_path()

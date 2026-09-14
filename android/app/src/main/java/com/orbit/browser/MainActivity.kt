@@ -1,7 +1,9 @@
 package com.orbit.browser
 
 import android.annotation.SuppressLint
+import android.app.DownloadManager
 import android.content.Context
+import android.net.Uri
 import android.graphics.Color
 import android.graphics.Typeface
 import android.os.Bundle
@@ -29,6 +31,7 @@ import java.util.concurrent.Executors
 
 class MainActivity : ComponentActivity() {
     private val api = "https://orbit-api-9uqa.onrender.com"
+    private val appVersion = "1.0.0"
     private lateinit var root: LinearLayout
     private lateinit var tabsRow: LinearLayout
     private lateinit var address: EditText
@@ -53,7 +56,7 @@ class MainActivity : ComponentActivity() {
         token = prefs.getString("token", null)
         buildUi()
         showWelcome()
-        addTab("https://html.duckduckgo.com/html/")
+        if (isOnline()) addTab("https://html.duckduckgo.com/html/") else showOffline()
         sync(true)
         handler.postDelayed(object : Runnable {
             override fun run() {
@@ -121,7 +124,7 @@ class MainActivity : ComponentActivity() {
             setSupportZoom(true)
             setSupportMultipleWindows(false)
             javaScriptCanOpenWindowsAutomatically = false
-            userAgentString = userAgentString + " OrbitBrowser/1.16.21"
+            userAgentString = userAgentString + " OrbitBrowser/1.0.0"
         }
         CookieManager.getInstance().setAcceptCookie(true)
         v.webViewClient = object : WebViewClient() {
@@ -132,13 +135,48 @@ class MainActivity : ComponentActivity() {
             }
             override fun onPageFinished(view: WebView, url: String) {
                 if (view === currentWeb()) { address.setText(url); title.text = view.title ?: "Orbit" }
-                saveHistory(url, view.title ?: url)
+                if (!url.startsWith("file:///android_asset/offline.html")) saveHistory(url, view.title ?: url)
+            }
+            override fun onReceivedError(view: WebView, request: WebResourceRequest, error: android.webkit.WebResourceError) {
+                if (request.isForMainFrame) showOffline()
             }
         }
         v.webChromeClient = object : WebChromeClient() {
             override fun onReceivedTitle(view: WebView, pageTitle: String) { if (view === currentWeb()) title.text = pageTitle }
         }
-        v.setDownloadListener(DownloadListener { _, _, _, _, _ -> Toast.makeText(this, "Загрузка доступна через Orbit", Toast.LENGTH_SHORT).show() })
+        v.setDownloadListener(DownloadListener { _, url, userAgent, contentDisposition, mimeType ->
+            try {
+                val fileName = android.webkit.URLUtil.guessFileName(url, contentDisposition, mimeType)
+                val request = DownloadManager.Request(Uri.parse(url))
+                    .setTitle(fileName)
+                    .setDescription("Orbit Browser")
+                    .setMimeType(mimeType)
+                    .addRequestHeader("User-Agent", userAgent)
+                    .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                    .setDestinationInExternalPublicDir(android.os.Environment.DIRECTORY_DOWNLOADS, fileName)
+                val manager = getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+                manager.enqueue(request)
+                Toast.makeText(this, "Загрузка началась: $fileName", Toast.LENGTH_SHORT).show()
+            } catch (e: Exception) {
+                Toast.makeText(this, "Не удалось начать загрузку", Toast.LENGTH_SHORT).show()
+            }
+        })
+    }
+
+    private fun isOnline(): Boolean {
+        val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as android.net.ConnectivityManager
+        val network = cm.activeNetwork ?: return false
+        val caps = cm.getNetworkCapabilities(network) ?: return false
+        return caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET)
+    }
+
+    private fun showOffline() {
+        currentWeb()?.stopLoading()
+        content.removeAllViews()
+        val offline = WebView(this)
+        configure(offline)
+        content.addView(offline, FrameLayout.LayoutParams(-1, -1))
+        offline.loadUrl("file:///android_asset/offline.html")
     }
 
     private fun addTab(url: String) {

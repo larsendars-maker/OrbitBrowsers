@@ -17,7 +17,7 @@ try:
 except Exception:
     genai = None
 
-APP_VERSION = "1.16.21"
+APP_VERSION = "1.0.0"
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
 DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 FOUNDER_USERNAME = os.getenv("ORBIT_FOUNDER_USERNAME", "Larsenda").strip() or "Larsenda"
@@ -25,7 +25,9 @@ FOUNDER_EMAIL = os.getenv("ORBIT_FOUNDER_EMAIL", "").strip().lower()
 FOUNDER_PASSWORD = os.getenv("ORBIT_FOUNDER_PASSWORD", "")
 ANALYTICS_SECRET = os.getenv("ORBIT_ANALYTICS_SECRET", "orbit-dev-analytics-change-me")
 DOWNLOAD_URL = os.getenv("ORBIT_DOWNLOAD_URL", "").strip()
-RELEASE_URL = os.getenv("ORBIT_RELEASE_URL", "https://github.com/larsendars-maker/OrbitBrowsers/releases/latest").strip()
+RELEASE_URL = os.getenv("ORBIT_RELEASE_URL", "https://github.com/larsendars-maker/OrbitBrowsers/releases/tag/Windows").strip()
+WINDOWS_DOWNLOAD_URL = os.getenv("ORBIT_WINDOWS_DOWNLOAD_URL", "https://github.com/larsendars-maker/OrbitBrowsers/releases/download/Windows/OrbitBrowser-Setup.exe").strip()
+ANDROID_DOWNLOAD_URL = os.getenv("ORBIT_ANDROID_DOWNLOAD_URL", "https://github.com/larsendars-maker/OrbitBrowsers/releases/download/Android/OrbitBrowser.apk").strip()
 DOWNLOAD_VERSION = os.getenv("ORBIT_DOWNLOAD_VERSION", APP_VERSION).strip()
 DOWNLOAD_FILE_NAME = os.getenv("ORBIT_DOWNLOAD_FILE_NAME", "OrbitBrowser-Setup.exe").strip()
 WEB_ORIGINS = [x.strip() for x in os.getenv("ORBIT_WEB_ORIGINS", "").split(",") if x.strip()]
@@ -349,12 +351,17 @@ def startup():
         elif FOUNDER_EMAIL:
             cur.execute("UPDATE users SET role='admin',title='Создатель Orbit' WHERE LOWER(email)=LOWER(%s)", (FOUNDER_EMAIL,))
             cur.execute("INSERT INTO user_titles(user_id,title_key) SELECT id,'creator' FROM users WHERE LOWER(email)=LOWER(%s) ON CONFLICT DO NOTHING", (FOUNDER_EMAIL,))
-        if DOWNLOAD_URL:
-            cur.execute("""INSERT INTO download_files(key,name,version,file_name,url,is_active)
-                           VALUES('orbit-browser','Orbit Browser',%s,%s,%s,TRUE)
-                           ON CONFLICT(key) DO UPDATE SET name=EXCLUDED.name,version=EXCLUDED.version,
-                           file_name=EXCLUDED.file_name,url=EXCLUDED.url,is_active=TRUE""",
-                        (DOWNLOAD_VERSION, DOWNLOAD_FILE_NAME, DOWNLOAD_URL or RELEASE_URL))
+        windows_url = DOWNLOAD_URL or WINDOWS_DOWNLOAD_URL
+        cur.execute("""INSERT INTO download_files(key,name,version,file_name,url,is_active)
+                       VALUES(%s,%s,%s,%s,%s,TRUE)
+                       ON CONFLICT(key) DO UPDATE SET name=EXCLUDED.name,version=EXCLUDED.version,
+                       file_name=EXCLUDED.file_name,url=EXCLUDED.url,is_active=TRUE""",
+                    ("orbit-browser-windows", "Orbit Browser для Windows", DOWNLOAD_VERSION, "OrbitBrowser-Setup.exe", windows_url))
+        cur.execute("""INSERT INTO download_files(key,name,version,file_name,url,is_active)
+                       VALUES(%s,%s,%s,%s,%s,TRUE)
+                       ON CONFLICT(key) DO UPDATE SET name=EXCLUDED.name,version=EXCLUDED.version,
+                       file_name=EXCLUDED.file_name,url=EXCLUDED.url,is_active=TRUE""",
+                    ("orbit-browser-android", "Orbit Browser для Android", DOWNLOAD_VERSION, "OrbitBrowser.apk", ANDROID_DOWNLOAD_URL))
         conn.commit()
 
 
@@ -794,7 +801,7 @@ def public_site_stats():
 @app.get("/api/downloads")
 def download_catalog():
     with db() as conn, conn.cursor() as cur:
-        cur.execute("SELECT key,name,version,file_name,is_active FROM download_files WHERE is_active=TRUE ORDER BY name")
+        cur.execute("SELECT key,name,version,file_name,is_active FROM download_files WHERE is_active=TRUE ORDER BY CASE key WHEN 'orbit-browser-windows' THEN 1 WHEN 'orbit-browser-android' THEN 2 ELSE 99 END, name")
         rows = cur.fetchall()
     return {"ok": True, "files": [dict(key=r[0],name=r[1],version=r[2],file_name=r[3],download_url=f"/download/{r[0]}") for r in rows]}
 

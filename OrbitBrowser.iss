@@ -1,5 +1,5 @@
 #define MyAppName "Orbit Browser"
-#define MyAppVersion "1.16.17"
+#define MyAppVersion "1.0.0"
 #define MyAppPublisher "Orbit Browsers"
 #define MyAppExeName "OrbitBrowser.exe"
 #define MyAppInstallDir "{autopf}\OrbitBrowsers"
@@ -23,7 +23,6 @@ UninstallDisplayIcon={app}\{#MyAppExeName}
 WizardStyle=modern
 DisableWelcomePage=no
 DisableDirPage=no
-DisableProgramGroupPage=no
 
 [Messages]
 WelcomeLabel1=Добро пожаловать в Orbit Browser!

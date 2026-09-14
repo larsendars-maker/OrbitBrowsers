@@ -18,7 +18,7 @@ from orbit_storage import load_config, save_config, load_local_profile, save_loc
 from orbit_ui import THEMES, stylesheet, tr
 
 APP_NAME = "Orbit Browser"
-APP_VERSION = "1.16.21"
+APP_VERSION = "1.0.0"
 API_URL = "https://orbit-api-9uqa.onrender.com"
 GITHUB_REPO = "larsendars-maker/OrbitBrowsers"
 WINDOWS_APP_USER_MODEL_ID = "Larsenda.OrbitBrowser"
@@ -78,7 +78,7 @@ class BrowserView(QWebEngineView):
         settings.setAttribute(QWebEngineSettings.WebAttribute.JavascriptEnabled, True)
         settings.setAttribute(QWebEngineSettings.WebAttribute.LocalStorageEnabled, True)
         settings.setAttribute(QWebEngineSettings.WebAttribute.FullScreenSupportEnabled, True)
-        self.loadFinished.connect(self.apply_site_theme)
+        self.loadFinished.connect(self._load_finished)
 
     def createWindow(self, _window_type):
         """Открывать target=_blank/window.open внутри новой вкладки Orbit, а не во внешнем окне."""
@@ -86,6 +86,15 @@ class BrowserView(QWebEngineView):
             return self.browser_window.new_browser_tab()
         except Exception:
             return None
+
+    def _load_finished(self, ok):
+        if not ok:
+            try:
+                self.browser_window.show_offline_page(self)
+                return
+            except Exception:
+                pass
+        self.apply_site_theme()
 
     def apply_site_theme(self):
         url = self.url().toString().lower()
@@ -446,6 +455,17 @@ class OrbitBrowser(QMainWindow):
         self.config["theme"] = theme
         save_config(self.config)
         self.apply_theme()
+
+    def show_offline_page(self, browser=None):
+        target = browser or self.current_browser()
+        if target is None:
+            target = self.new_browser_tab()
+        path = resource_path("assets", "offline.html")
+        if os.path.exists(path):
+            try:
+                target.setUrl(QUrl.fromLocalFile(path))
+            except Exception:
+                pass
 
     def show_home_screen(self):
         if hasattr(self, "tabs"):
