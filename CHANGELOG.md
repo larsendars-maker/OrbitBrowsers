@@ -1,17 +1,9 @@
 # Orbit Browser — Changelog
 
-## 1.2 — Current
-- Faster startup and delayed background sync/update checks.
-- Reworked landing page with clearer Windows/Android downloads and GitHub release links.
-- Unified Orbit visual system across site, Windows and Android.
-- Removed obsolete build artifacts and caches from release source.
-- Kept Orbit Search as the default search provider.
-
-## 1.1
-- Browser UI rework.
-- Mobile navigation improvements.
-- Orbit Search integration.
-- Profile, history, downloads and sync improvements.
-
-## 1.0
-- First public release.
+## 1.5
+- Добавлен режим производительности: ⚡ Максимальная скорость / Сбалансированный.
+- Увеличен WebEngine disk cache до 256 MB в режиме производительности.
+- В режиме производительности разрешено до 4 renderer-процессов вместо 2.
+- Внутренние страницы Orbit больше не создают дубликаты вкладок при повторном открытии: переключение происходит в существующую вкладку.
+- Исправлены повторные открытия Истории, Закладок, Загрузок, Заметок, Настроек, Профиля, Помощи и Админ-панели.
+- Сохранён быстрый запуск без ожидания сети.

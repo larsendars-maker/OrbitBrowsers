@@ -5,7 +5,7 @@ import sys
 import subprocess
 
 import requests
-from PySide6.QtCore import Qt, Signal, QObject, QThread, QTimer, QUrl
+from PySide6.QtCore import Qt, Signal, QThread, QObject, QTimer, QUrl
 from PySide6.QtGui import QCursor
 from PySide6.QtWidgets import (
     QApplication,
@@ -280,6 +280,8 @@ class HomePage(QWidget):
         self.build()
         fade_in(self, 220)
         self.weather_button.setText("◌  " + (self.browser.config.get("weather_city") or "Москва"))
+        # Погода никогда не блокирует запуск Orbit. Загружаем её после первого кадра UI.
+        QTimer.singleShot(900, self.refresh_weather_async)
 
     def lang(self, key):
         return tr(self.browser.config.get("language", "ru"), key)
@@ -396,112 +398,61 @@ class HomePage(QWidget):
         bottom.addStretch()
         outer.addLayout(bottom)
 
-    def refresh_weather(self):
-        """Обновляет погодный блок по сохранённому городу и уведомляет боковую панель."""
+    def refresh_weather_async(self):
+        if hasattr(self, "_weather_thread") and self._weather_thread and self._weather_thread.isRunning():
+            return
         language = self.browser.config.get("language", "ru")
         city = (self.browser.config.get("weather_city") or "Москва").strip()
-        country = (self.browser.config.get("weather_country") or "").strip()
         lat = self.browser.config.get("weather_latitude")
         lon = self.browser.config.get("weather_longitude")
+        self._weather_thread = QThread(self)
+        self._weather_worker = WeatherWorker(city, lat, lon, language)
+        self._weather_worker.moveToThread(self._weather_thread)
+        self._weather_thread.started.connect(self._weather_worker.run)
+        self._weather_worker.finished.connect(self._weather_finished)
+        self._weather_thread.finished.connect(self._weather_worker.deleteLater)
+        self._weather_thread.finished.connect(self._weather_thread.deleteLater)
+        self._weather_thread.start()
 
-        self.weather_button.setText("◌  " + city)
-        self.weather_button.setToolTip("Открыть выбор города" if language == "ru" else "Change weather city")
-
-        try:
-            if lat is None or lon is None:
-                response = requests.get(
-                    "https://geocoding-api.open-meteo.com/v1/search",
-                    params={
-                        "name": city,
-                        "count": 1,
-                        "language": "ru" if language == "ru" else "en",
-                        "format": "json",
-                    },
-                    timeout=6,
-                )
-                response.raise_for_status()
-                result = (response.json().get("results") or [None])[0]
-                if result:
-                    lat = result.get("latitude")
-                    lon = result.get("longitude")
-                    city = result.get("name") or city
-                    country = result.get("country") or country
-
-            if lat is None or lon is None:
-                raise ValueError("координаты города не найдены")
-
-            response = requests.get(
-                "https://api.open-meteo.com/v1/forecast",
-                params={
-                    "latitude": lat,
-                    "longitude": lon,
-                    "current": "temperature_2m,apparent_temperature,relative_humidity_2m,wind_speed_10m,weather_code",
-                    "timezone": "auto",
-                },
-                timeout=8,
-            )
-            response.raise_for_status()
-            current = response.json().get("current", {})
-            temp = current.get("temperature_2m")
-            feels = current.get("apparent_temperature")
-            humidity = current.get("relative_humidity_2m")
-            wind = current.get("wind_speed_10m")
-            code = current.get("weather_code")
-
-            conditions_ru = {
-                0: "Ясно", 1: "Преимущественно ясно", 2: "Переменная облачность", 3: "Пасмурно",
-                45: "Туман", 48: "Изморозь", 51: "Морось", 53: "Морось", 55: "Сильная морось",
-                61: "Небольшой дождь", 63: "Дождь", 65: "Сильный дождь", 71: "Небольшой снег",
-                73: "Снег", 75: "Сильный снег", 80: "Ливни", 81: "Сильные ливни",
-                82: "Очень сильные ливни", 95: "Гроза", 96: "Гроза с градом", 99: "Сильная гроза с градом",
-            }
-            conditions_en = {
-                0: "Clear", 1: "Mainly clear", 2: "Partly cloudy", 3: "Overcast", 45: "Fog", 48: "Rime fog",
-                51: "Light drizzle", 53: "Drizzle", 55: "Heavy drizzle", 61: "Light rain", 63: "Rain",
-                65: "Heavy rain", 71: "Light snow", 73: "Snow", 75: "Heavy snow", 80: "Rain showers",
-                81: "Heavy rain showers", 82: "Violent rain showers", 95: "Thunderstorm",
-                96: "Thunderstorm with hail", 99: "Strong thunderstorm with hail",
-            }
-            condition = (conditions_ru if language == "ru" else conditions_en).get(code, "—")
-
-            if temp is None:
-                raise ValueError("температура недоступна")
-
-            self.weather_data = {
-                "city": city,
-                "country": country,
-                "temperature": temp,
-                "apparent": feels,
-                "humidity": humidity,
-                "wind": wind,
-                "condition": condition,
-            }
-
-            self.browser.config.update({
-                "weather_city": city,
-                "weather_country": country,
-                "weather_latitude": lat,
-                "weather_longitude": lon,
-            })
-            from orbit_storage import save_config
-            save_config(self.browser.config)
-
-            self.weather_button.setText(f"◌  {city} · {temp:.1f}°C")
-            details = [condition]
-            if feels is not None:
-                details.append(f"ощущается {feels:.1f}°C" if language == "ru" else f"feels {feels:.1f}°C")
-            if humidity is not None:
-                details.append(f"влажность {humidity}%" if language == "ru" else f"humidity {humidity}%")
-            if wind is not None:
-                details.append(f"ветер {wind:.1f} км/ч" if language == "ru" else f"wind {wind:.1f} km/h")
-            self.weather_button.setToolTip(" · ".join(details))
-            self.weatherChanged.emit(self.weather_button.text())
-        except Exception:
+    def _weather_finished(self, payload):
+        if isinstance(payload, Exception):
+            language = self.browser.config.get("language", "ru")
+            city = (self.browser.config.get("weather_city") or "Москва").strip()
             self.weather_button.setText("◌  " + city)
-            self.weather_button.setToolTip(
-                "Погода временно недоступна" if language == "ru" else "Weather temporarily unavailable"
-            )
-            self.weatherChanged.emit(self.weather_button.text())
+            self.weather_button.setToolTip("Погода временно недоступна" if language == "ru" else "Weather temporarily unavailable")
+        else:
+            self._apply_weather_payload(payload)
+        if hasattr(self, "_weather_thread") and self._weather_thread.isRunning():
+            self._weather_thread.quit()
+
+    def _apply_weather_payload(self, data):
+        language = self.browser.config.get("language", "ru")
+        self.weather_data = data
+        self.browser.config.update({
+            "weather_city": data.get("city"),
+            "weather_country": data.get("country", ""),
+            "weather_latitude": data.get("latitude"),
+            "weather_longitude": data.get("longitude"),
+            "weather_cached": data,
+        })
+        from orbit_storage import save_config
+        save_config(self.browser.config)
+        temp = data.get("temperature")
+        city = data.get("city") or "Москва"
+        self.weather_button.setText(f"◌  {city} · {temp:.1f}°C" if isinstance(temp,(int,float)) else f"◌  {city}")
+        details = [data.get("condition", "—")]
+        if data.get("apparent") is not None:
+            details.append(f"ощущается {data['apparent']:.1f}°C" if language == "ru" else f"feels {data['apparent']:.1f}°C")
+        if data.get("humidity") is not None:
+            details.append(f"влажность {data['humidity']}%" if language == "ru" else f"humidity {data['humidity']}%")
+        if data.get("wind") is not None:
+            details.append(f"ветер {data['wind']:.1f} км/ч" if language == "ru" else f"wind {data['wind']:.1f} km/h")
+        self.weather_button.setToolTip(" · ".join(details))
+        self.weatherChanged.emit(self.weather_button.text())
+
+    def refresh_weather(self):
+        # Совместимость со старым API: теперь обновление выполняется асинхронно.
+        self.refresh_weather_async()
 
     def apply_language(self):
         language = self.browser.config.get("language", "ru")
@@ -597,6 +548,29 @@ class HomePage(QWidget):
         save_config(self.browser.config)
         self.refresh_weather()
 
+
+class WeatherWorker(QObject):
+    finished = Signal(object)
+    def __init__(self, city, lat, lon, language):
+        super().__init__(); self.city = city; self.lat = lat; self.lon = lon; self.language = language
+    def run(self):
+        try:
+            lat, lon, city, country = self.lat, self.lon, self.city, ""
+            if lat is None or lon is None:
+                r=requests.get("https://geocoding-api.open-meteo.com/v1/search",params={"name":city,"count":1,"language":"ru" if self.language=="ru" else "en","format":"json"},timeout=4)
+                r.raise_for_status(); result=(r.json().get("results") or [None])[0]
+                if not result: raise ValueError("city not found")
+                lat=result.get("latitude"); lon=result.get("longitude"); city=result.get("name") or city; country=result.get("country") or ""
+            r=requests.get("https://api.open-meteo.com/v1/forecast",params={"latitude":lat,"longitude":lon,"current":"temperature_2m,apparent_temperature,relative_humidity_2m,wind_speed_10m,weather_code","timezone":"auto"},timeout=5)
+            r.raise_for_status(); cur=r.json().get("current",{})
+            code=cur.get("weather_code")
+            ru={0:"Ясно",1:"Преимущественно ясно",2:"Переменная облачность",3:"Пасмурно",45:"Туман",48:"Изморозь",51:"Морось",53:"Морось",55:"Сильная морось",61:"Небольшой дождь",63:"Дождь",65:"Сильный дождь",71:"Небольшой снег",73:"Снег",75:"Сильный снег",80:"Ливни",81:"Сильные ливни",82:"Очень сильные ливни",95:"Гроза",96:"Гроза с градом",99:"Сильная гроза с градом"}
+            en={0:"Clear",1:"Mainly clear",2:"Partly cloudy",3:"Overcast",45:"Fog",48:"Rime fog",51:"Light drizzle",53:"Drizzle",55:"Heavy drizzle",61:"Light rain",63:"Rain",65:"Heavy rain",71:"Light snow",73:"Snow",75:"Heavy snow",80:"Rain showers",81:"Heavy rain showers",82:"Violent rain showers",95:"Thunderstorm",96:"Thunderstorm with hail",99:"Strong thunderstorm with hail"}
+            payload={"city":city,"country":country,"latitude":lat,"longitude":lon,"temperature":cur.get("temperature_2m"),"apparent":cur.get("apparent_temperature"),"humidity":cur.get("relative_humidity_2m"),"wind":cur.get("wind_speed_10m"),"condition":(ru if self.language=="ru" else en).get(code,"—")}
+            if payload["temperature"] is None: raise ValueError("temperature unavailable")
+            self.finished.emit(payload)
+        except Exception as exc:
+            self.finished.emit(exc)
 
 class OrbitSearchWorker(QObject):
     finished = Signal(object)
@@ -2050,7 +2024,21 @@ class SettingsPage(QWidget):
         anim.clicked.connect(lambda: self.toggle_bool("animations", anim))
         self.add_card("Плавные анимации", "Включает мягкие появления и переходы интерфейса. Отключение может сделать интерфейс быстрее на слабом ПК.", anim)
 
+        perf = QPushButton("Максимальная скорость" if self.browser.config.get("performance_mode", "performance") == "performance" else "Сбалансированный")
+        perf.clicked.connect(lambda: self.toggle_performance(perf))
+        self.add_card("Режим производительности", "Максимальная скорость использует больше ресурсов и держит больше renderer-процессов для быстрых переходов между вкладками.", perf)
+
         self.layout.addStretch()
+
+    def toggle_performance(self, button):
+        current = self.browser.config.get("performance_mode", "performance")
+        new_mode = "balanced" if current == "performance" else "performance"
+        self.browser.config["performance_mode"] = new_mode
+        from orbit_storage import save_config
+        save_config(self.browser.config)
+        self.browser.update_mode_button()
+        self.browser.apply_chromium_performance()
+        button.setText("Максимальная скорость" if new_mode == "performance" else "Сбалансированный")
 
     def save_engine(self, index):
         self.browser.config["search_engine"] = self.engine_control.itemData(index)

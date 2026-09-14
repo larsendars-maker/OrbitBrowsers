@@ -1,0 +1,11 @@
+[[redirects]]
+  from = "/download/windows"
+  to = "https://github.com/larsendars-maker/OrbitBrowsers/releases/download/Windows/OrbitBrowser-Setup.exe"
+  status = 302
+  force = true
+
+[[redirects]]
+  from = "/download/android"
+  to = "https://github.com/larsendars-maker/OrbitBrowsers/releases/download/Android/OrbitBrowser.apk"
+  status = 302
+  force = true

@@ -19,7 +19,7 @@ from orbit_ui import THEMES, stylesheet, tr
 from orbit_secure import protect as secure_protect, unprotect as secure_unprotect
 
 APP_NAME = "Orbit Browser"
-APP_VERSION = "1.1"
+APP_VERSION = "1.5"
 API_URL = "https://orbit-api-9uqa.onrender.com"
 GITHUB_REPO = "larsendars-maker/OrbitBrowsers"
 WINDOWS_APP_USER_MODEL_ID = "Larsenda.OrbitBrowser"
@@ -234,6 +234,7 @@ class OrbitBrowser(QMainWindow):
             save_local_profile(self.user)
         self.build_ui()
         self.update_identity_ui()
+        self.update_mode_button()
         self.apply_theme()
         self.show_home_screen()
         self.update_timer = QTimer(self)
@@ -345,6 +346,12 @@ class OrbitBrowser(QMainWindow):
         profile.clicked.connect(self.open_profile_page)
         top.addWidget(profile)
 
+        self.mode_button = QPushButton("⚡")
+        self.mode_button.setFixedSize(42, 42)
+        self.mode_button.setToolTip("Режим производительности")
+        self.mode_button.clicked.connect(self.toggle_performance_mode)
+        top.addWidget(self.mode_button)
+
         content.addWidget(chrome)
 
         self.tabs = QTabWidget()
@@ -379,6 +386,38 @@ class OrbitBrowser(QMainWindow):
         self.web_profile.downloadRequested.connect(self.handle_download_request)
 
         root.addLayout(content, 1)
+    def performance_mode(self):
+        return self.config.get("performance_mode", "performance")
+
+    def toggle_performance_mode(self):
+        current = self.performance_mode()
+        new_mode = "balanced" if current == "performance" else "performance"
+        self.config["performance_mode"] = new_mode
+        save_config(self.config)
+        self.apply_chromium_performance()
+        self.update_mode_button()
+
+    def update_mode_button(self):
+        if not hasattr(self, "mode_button"):
+            return
+        if self.performance_mode() == "performance":
+            self.mode_button.setText("⚡")
+            self.mode_button.setToolTip("Режим: Производительность")
+        else:
+            self.mode_button.setText("◌")
+            self.mode_button.setToolTip("Режим: Сбалансированный")
+
+    def apply_chromium_performance(self):
+        # Перезапуск процесса Chromium не нужен: применяем лёгкие настройки сразу,
+        # а основные флаги задаются до создания QApplication.
+        limit = 4 if self.performance_mode() == "performance" else 2
+        try:
+            os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = f"--disable-background-networking --disable-component-update --disable-domain-reliability --disable-features=Translate,MediaRouter,OptimizationHints --renderer-process-limit={limit}"
+            if self.config.get("proxy_url"):
+                os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] += " --proxy-server=" + str(self.config["proxy_url"])
+        except Exception:
+            pass
+
     def toggle_sidebar(self):
         if not hasattr(self, "sidebar") or not hasattr(self, "sidebar_toggle_button"):
             return
@@ -657,19 +696,19 @@ class OrbitBrowser(QMainWindow):
             self.open_orbit_search(unquote(query))
             return
         if url.startswith("orbit://history"):
-            self.open_internal_page(HistoryPage(self), "История")
+            self.open_internal_page(HistoryPage(self), "История", "history")
             return
         if url.startswith("orbit://bookmarks"):
-            self.open_internal_page(BookmarksPage(self), "Закладки")
+            self.open_internal_page(BookmarksPage(self), "Закладки", "bookmarks")
             return
         if url.startswith("orbit://downloads"):
-            self.open_internal_page(DownloadsPage(self), "Загрузки")
+            self.open_internal_page(DownloadsPage(self), "Загрузки", "downloads")
             return
         if url.startswith("orbit://notes"):
-            self.open_internal_page(NotesPage(self), "Notes")
+            self.open_internal_page(NotesPage(self), "Заметки", "notes")
             return
         if url.startswith("orbit://settings"):
-            self.open_internal_page(SettingsPage(self), "Настройки")
+            self.open_internal_page(SettingsPage(self), "Настройки", "settings")
             return
         if url.startswith("orbit://profile"):
             self.open_profile_page()
@@ -717,27 +756,41 @@ class OrbitBrowser(QMainWindow):
         if b:
             b.reload()
 
-    def open_internal_page(self, page, title):
+    def open_internal_page(self, page, title, route=None):
         self.show_web_area()
+        route = route or title.lower()
+        # Один экземпляр каждой внутренней страницы: повторное нажатие просто переключает вкладку.
+        for i in range(self.tabs.count()):
+            existing = self.tabs.widget(i)
+            if existing is not None and existing.objectName() == f"orbit-page:{route}":
+                self.tabs.setCurrentIndex(i)
+                self.address.setText(f"orbit://{route}")
+                try:
+                    existing.refresh()
+                except Exception:
+                    pass
+                return existing
+        page.setObjectName(f"orbit-page:{route}")
         i = self.tabs.addTab(page, title)
         self.install_tab_close_button(i)
         self.tabs.setCurrentIndex(i)
-        self.address.setText(f"orbit://{title.lower()}")
+        self.address.setText(f"orbit://{route}")
+        return page
 
     def open_history(self):
-        self.open_internal_page(HistoryPage(self), "История")
+        self.open_internal_page(HistoryPage(self), "История", "history")
 
     def open_bookmarks(self):
-        self.open_internal_page(BookmarksPage(self), "Закладки")
+        self.open_internal_page(BookmarksPage(self), "Закладки", "bookmarks")
 
     def open_notes(self):
-        self.open_internal_page(NotesPage(self), "Notes")
+        self.open_internal_page(NotesPage(self), "Заметки", "notes")
 
     def open_downloads(self):
-        self.open_internal_page(DownloadsPage(self), "Загрузки")
+        self.open_internal_page(DownloadsPage(self), "Загрузки", "downloads")
 
     def open_settings(self):
-        self.open_internal_page(SettingsPage(self), "Настройки")
+        self.open_internal_page(SettingsPage(self), "Настройки", "settings")
 
     def set_session(self, token, user):
         self.token=token; self.user=user if isinstance(user,dict) else None
@@ -767,9 +820,9 @@ class OrbitBrowser(QMainWindow):
 
     def open_profile_page(self):
         if not self.token:
-            self.open_internal_page(LoginPage(self), "Войти")
+            self.open_internal_page(LoginPage(self), "Войти", "login")
             return
-        self.open_internal_page(ProfilePage(self), "Профиль")
+        self.open_internal_page(ProfilePage(self), "Профиль", "profile")
 
     def open_gemini(self):
         # Orbit AI is a simple, convenient Gemini web-chat entry point.
@@ -787,12 +840,12 @@ class OrbitBrowser(QMainWindow):
         if self.is_guest:
             QMessageBox.information(self, "Orbit Помощь", "Чтобы создавать и отслеживать обращения, войдите в Orbit Account.")
             return
-        self.open_internal_page(SupportPage(self), "Помощь")
+        self.open_internal_page(SupportPage(self), "Помощь", "support")
 
     def open_admin_panel(self):
         if self.is_guest or (self.user or {}).get("role", "user").lower() not in {"helper", "admin"}:
             return
-        self.open_internal_page(AdminPanelPage(self), "Админ-панель")
+        self.open_internal_page(AdminPanelPage(self), "Админ-панель", "admin")
 
     def open_profile(self):
         self.open_profile_page()
@@ -822,7 +875,7 @@ class OrbitBrowser(QMainWindow):
         bar.setVisible(True)
 
     def open_diagnostics(self):
-        self.open_internal_page(DiagnosticsPage(self), "Диагностика")
+        self.open_internal_page(DiagnosticsPage(self), "Диагностика", "diagnostics")
 
     def update_identity_ui(self):
         user = self.user or {}
@@ -969,7 +1022,9 @@ def main():
     os.makedirs(os.path.dirname(SESSION_FILE), exist_ok=True)
     config=load_config()
     flags=os.environ.get("QTWEBENGINE_CHROMIUM_FLAGS", "")
-    optimizations=" --disable-background-networking --disable-component-update --disable-domain-reliability --disable-features=Translate,MediaRouter,OptimizationHints --renderer-process-limit=4"
+    mode=str(config.get("performance_mode", "performance"))
+    renderer_limit="4" if mode == "performance" else "2"
+    optimizations=f" --disable-background-networking --disable-component-update --disable-domain-reliability --disable-features=Translate,MediaRouter,OptimizationHints --renderer-process-limit={renderer_limit}"
     os.environ["QTWEBENGINE_CHROMIUM_FLAGS"]=(flags+optimizations).strip()
     proxy_url=str(config.get("proxy_url", "")).strip()
     if proxy_url:
