@@ -1,8 +1,7 @@
 # Security
 
-- Реальные секреты не хранятся в Git.
-- `.env`, ключи, сертификаты, keystore и credentials исключены через `.gitignore`.
-- Production secrets должны храниться в Render/GitHub Secrets.
-- Пароли пользователей хранятся только в виде хеша.
-- APK/EXE артефакты не хранятся в исходном дереве.
-- Публичные релизы не должны содержать `database`, access tokens, private keys или реальные credentials.
+- Не храните реальные API keys, пароли, токены, `.env`, сертификаты и приватные ключи в Git.
+- Production secrets задаются только через GitHub Actions Secrets/Variables или секреты Render.
+- `.gitignore` блокирует `.env`, ключи, сертификаты и локальные build outputs.
+- Клиентские сборки не должны содержать `GEMINI_API_KEY`, `DATABASE_URL`, `ORBIT_FOUNDER_PASSWORD` или другие серверные секреты.
+- Локальный токен аккаунта должен считаться чувствительными данными; не публикуйте каталог `%LOCALAPPDATA%\OrbitBrowser`.

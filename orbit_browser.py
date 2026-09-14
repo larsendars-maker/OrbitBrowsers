@@ -13,9 +13,10 @@ from PySide6.QtWebEngineCore import QWebEnginePage, QWebEngineProfile, QWebEngin
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import QApplication, QFrame, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMessageBox, QPushButton, QTabWidget, QVBoxLayout, QWidget, QSplashScreen, QProgressDialog, QFileDialog, QMenu, QStyle, QTabBar
 
-from orbit_pages import HomePage, HistoryPage, BookmarksPage, NotesPage, DownloadsPage, SettingsPage, SearchPage, DiagnosticsPage, ProfilePage, LoginPage, GeminiPage, SupportPage, AdminPanelPage, ChangelogPage, ChangelogPage
+from orbit_pages import HomePage, HistoryPage, BookmarksPage, NotesPage, DownloadsPage, SettingsPage, SearchPage, DiagnosticsPage, ProfilePage, LoginPage, GeminiPage, SupportPage, AdminPanelPage
 from orbit_storage import load_config, save_config, load_local_profile, save_local_profile, add_history, add_download, build_sync_bundle, apply_sync_bundle, sync_state_signature
 from orbit_ui import THEMES, stylesheet, tr
+from orbit_secure import protect as secure_protect, unprotect as secure_unprotect
 
 APP_NAME = "Orbit Browser"
 APP_VERSION = "1.0"
@@ -55,7 +56,11 @@ def load_session():
     try:
         with open(SESSION_FILE, "r", encoding="utf-8") as f:
             saved = json.load(f)
-        token = saved.get("token")
+        raw_token = saved.get("token", "")
+        try:
+            token = secure_unprotect(raw_token) if raw_token.startswith("dpapi:") else raw_token
+        except Exception:
+            token = None
         if not token:
             return None
         r = requests.get(f"{API_URL}/api/auth/session", headers={"Authorization": f"Bearer {token}"}, timeout=15)
@@ -618,12 +623,15 @@ class OrbitBrowser(QMainWindow):
         "duckduckgo": "https://duckduckgo.com/?q=",
         # Orbit — системный режим поиска. Пока собственного индекса нет, Orbit
         # использует внешний results endpoint внутри текущей вкладки Orbit.
-        "orbit": "https://html.duckduckgo.com/html/?q=",
+        "orbit": "orbit://search?q=",
     }
 
     def search_url(self, query):
         base = self.SEARCH_PROVIDERS.get(self.config.get("search_engine", "orbit"), self.SEARCH_PROVIDERS["orbit"])
         return base + quote(query)
+
+    def show_search_results(self, query):
+        self.open_orbit_search(query)
 
     def open_orbit_search(self, query=""):
         if query:
@@ -673,9 +681,6 @@ class OrbitBrowser(QMainWindow):
             return
         if url.startswith("orbit://support"):
             self.open_support()
-            return
-        if url.startswith("orbit://changelog"):
-            self.open_internal_page(ChangelogPage(self), "Журнал изменений")
             return
         self.show_web_area()
         browser = self.current_browser()
@@ -741,8 +746,11 @@ class OrbitBrowser(QMainWindow):
         self.is_guest=not bool(self.token and self.user)
         if self.token:
             try:
-                with open(SESSION_FILE,"w",encoding="utf-8") as f: json.dump({"token":self.token},f)
-            except Exception: pass
+                value = secure_protect(self.token) if os.name == "nt" else self.token
+                with open(SESSION_FILE, "w", encoding="utf-8") as f:
+                    json.dump({"token": value}, f)
+            except Exception:
+                pass
             save_local_profile(self.user or {})
         self.update_identity_ui(); self.rebuild_navigation(); self.sync_now()
 
@@ -776,9 +784,6 @@ class OrbitBrowser(QMainWindow):
         else:
             browser.setUrl(QUrl(gemini_url))
         self.address.setText(gemini_url)
-
-    def open_changelog(self):
-        self.open_internal_page(ChangelogPage(self), "Журнал изменений")
 
     def open_support(self):
         if self.is_guest:
@@ -979,7 +984,12 @@ def main():
     local_profile=load_local_profile(); saved_token=None
     try:
         if os.path.exists(SESSION_FILE):
-            with open(SESSION_FILE,"r",encoding="utf-8") as f: saved_token=json.load(f).get("token")
+            with open(SESSION_FILE,"r",encoding="utf-8") as f:
+                saved_value=json.load(f).get("token")
+                try:
+                    saved_token=secure_unprotect(saved_value) if saved_value and saved_value.startswith("dpapi:") else saved_value
+                except Exception:
+                    saved_token=None
     except Exception: pass
     session={"token":saved_token if local_profile and saved_token else None, "user":local_profile if local_profile and saved_token else None}
     window=OrbitBrowser(session,config); window.show()

@@ -1,4 +1,4 @@
-name: Build Orbit Android APK
+name: Build Orbit Android
 
 on:
   workflow_dispatch:
@@ -12,61 +12,51 @@ permissions:
 
 jobs:
   android:
-    name: Build Orbit Browser APK
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Setup JDK 17
-        uses: actions/setup-java@v6
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "17"
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
-
-      - name: Install Android SDK packages
+      - name: Install SDK
         run: sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
 
-      - name: Setup Gradle 8.7
+      - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.7"
 
-      - name: Configure Android SDK
+      - name: Configure SDK
         run: echo "sdk.dir=$ANDROID_SDK_ROOT" > android/local.properties
 
-      - name: Build APK
+      - name: Build APK and AAB
         working-directory: android
-        run: gradle clean assembleDebug --stacktrace --console=plain --no-daemon
+        run: gradle clean assembleDebug bundleRelease --stacktrace --console=plain --no-daemon
 
-      - name: Prepare APK
+      - name: Prepare files
         run: |
           mkdir -p output
           cp android/app/build/outputs/apk/debug/app-debug.apk output/OrbitBrowser.apk
-          sha256sum output/OrbitBrowser.apk > output/SHA256.txt
-          ls -lh output/
+          cp android/app/build/outputs/bundle/release/app-release.aab output/OrbitBrowser.aab
+          sha256sum output/OrbitBrowser.apk output/OrbitBrowser.aab > output/SHA256.txt
 
-      - name: Upload APK artifact
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: OrbitBrowser-APK
+          name: OrbitBrowser-Android
           path: output/*
-          if-no-files-found: error
 
       - name: Publish Android Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: Android
-          name: Orbit Browser Android
-          body: "Orbit Browser для Android."
-          prerelease: false
-          make_latest: false
-          files: |
-            output/OrbitBrowser.apk
-            output/SHA256.txt
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if ! gh release view Android >/dev/null 2>&1; then
+            gh release create Android --title "Orbit Browser Android" --notes "Orbit Browser 1.0 для Android."
+          fi
+          gh release upload Android output/OrbitBrowser.apk output/OrbitBrowser.aab output/SHA256.txt --clobber

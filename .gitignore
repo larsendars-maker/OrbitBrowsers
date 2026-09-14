@@ -26,21 +26,3 @@ credentials/
 
 # Build outputs
 *.pyc
-
-# Local databases and runtime data
-*.db
-*.sqlite
-*.sqlite3
-data/
-logs/
-cache/
-backups/
-profiles/
-config/
-
-# IDE / OS
-.idea/
-.vscode/
-*.iml
-.DS_Store
-Thumbs.db
