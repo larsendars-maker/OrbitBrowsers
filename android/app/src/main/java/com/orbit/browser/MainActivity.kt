@@ -41,7 +41,7 @@ import java.util.concurrent.Executors
 
 class MainActivity : ComponentActivity() {
     private val api = "https://orbit-api-9uqa.onrender.com"
-    private val appVersion = "1.1"
+    private val appVersion = "1.7"
     private val orbitBg = Color.rgb(5, 7, 18)
     private val orbitSurface = Color.rgb(11, 16, 35)
     private val orbitSurface2 = Color.rgb(19, 26, 53)
@@ -135,6 +135,7 @@ class MainActivity : ComponentActivity() {
             setOnEditorActionListener { _, _, _ -> navigate(); true }
         }
         bar.addView(address, LinearLayout.LayoutParams(0, 46, 1f))
+        bar.addView(topButton("🎮") { showGames() }, LinearLayout.LayoutParams(42, 46))
         bar.addView(topButton("●") { showProfile() }, LinearLayout.LayoutParams(42, 46))
         top.addView(bar)
 
@@ -313,6 +314,11 @@ class MainActivity : ComponentActivity() {
         panel.addView(back)
         content.removeAllViews()
         content.addView(panel, FrameLayout.LayoutParams(-1, -1))
+    }
+
+    private fun showGames() {
+        showBrowser()
+        currentWeb()?.loadUrl("file:///android_asset/offline.html")
     }
 
     private fun showOffline() {

@@ -335,8 +335,8 @@ class HomePage(QWidget):
         search_row.addWidget(self.search, 1)
 
         engine_name = {
-            "google": "Google", "bing": "Bing", "duckduckgo": "DuckDuckGo", "orbit": "Orbit"
-        }.get(self.browser.config.get("search_engine", "orbit"), "Orbit")
+            "google": "Google", "bing": "Bing", "duckduckgo": "DuckDuckGo", "yandex": "Яндекс"
+        }.get(self.browser.config.get("search_engine", "google"), "Google")
         self.engine_hint = QPushButton(engine_name)
         self.engine_hint.setObjectName("searchUtility")
         self.engine_hint.setToolTip("Выбрать поисковую систему / Choose search engine")
@@ -468,7 +468,7 @@ class HomePage(QWidget):
             current = self.browser.config.get("weather_city", "") or tr(language, "weather")
             self.weather_button.setText("◌  " + current)
         if hasattr(self, "engine_hint"):
-            name = {"google":"Google", "bing":"Bing", "duckduckgo":"DuckDuckGo", "orbit":"Orbit"}.get(self.browser.config.get("search_engine", "orbit"), "Orbit")
+            name = {"google":"Google", "bing":"Bing", "duckduckgo":"DuckDuckGo", "yandex":"Яндекс"}.get(self.browser.config.get("search_engine", "google"), "Google")
             self.engine_hint.setText(name)
 
     def clear_shortcuts(self):
@@ -616,7 +616,7 @@ class SearchPage(QWidget):
         if query:
             self.run_search()
         else:
-            self.results.addItem(QListWidgetItem("Введите запрос, чтобы начать поиск в Orbit."))
+            self.results.addItem(QListWidgetItem("Введите запрос, чтобы начать поиск."))
         fade_in(self)
 
     def run_search(self):
@@ -624,11 +624,11 @@ class SearchPage(QWidget):
         if not query:
             return
         self.query = query
-        if not (self.force_orbit or self.browser.config.get("search_engine", "orbit") == "orbit"):
+        if not self.force_orbit or self.browser.config.get("search_engine", "google") != "orbit":
             self.browser.open_url(self.browser.search_url(query))
             return
         self.results.clear()
-        self.results.addItem(QListWidgetItem("Поиск в Orbit…"))
+        self.results.addItem(QListWidgetItem("Поиск…"))
         self.thread = QThread(self)
         self.worker = OrbitSearchWorker(self.browser.API_URL, query)
         self.worker.moveToThread(self.thread)
@@ -641,9 +641,9 @@ class SearchPage(QWidget):
     def _search_finished(self, payload):
         self.results.clear()
         if isinstance(payload, Exception):
-            self.results.addItem(QListWidgetItem("Orbit Search временно недоступен. Попробуйте ещё раз."))
+            self.results.addItem(QListWidgetItem("Поиск временно недоступен. Попробуйте ещё раз."))
         elif not payload:
-            self.results.addItem(QListWidgetItem("По Orbit ничего не найдено."))
+            self.results.addItem(QListWidgetItem("Ничего не найдено."))
         else:
             for item in payload:
                 title = item.get("title") or item.get("url") or "Результат"
@@ -2000,12 +2000,12 @@ class SettingsPage(QWidget):
         self.add_card("Тема Orbit", "Меняет фон, акцентный цвет, панели и общий внешний вид браузера.", theme)
 
         engine = QComboBox()
-        for label, data in [("Orbit", "orbit"), ("Google", "google"), ("Bing", "bing"), ("DuckDuckGo", "duckduckgo")]:
+        for label, data in [("Google", "google"), ("Bing", "bing"), ("DuckDuckGo", "duckduckgo"), ("Яндекс", "yandex")]:
             engine.addItem(label, data)
-        idx = engine.findData(self.browser.config.get("search_engine", "orbit"))
+        idx = engine.findData(self.browser.config.get("search_engine", "google"))
         engine.setCurrentIndex(idx if idx >= 0 else 0)
         engine.currentIndexChanged.connect(self.save_engine)
-        self.add_card("Поисковая система", "Orbit выбран по умолчанию. Выберите другой поисковик, если он нужен.", engine)
+        self.add_card("Поисковая система", "Google выбран по умолчанию. Нажмите кнопку в поисковой строке, чтобы выбрать Google, Bing, DuckDuckGo или Яндекс.", engine)
         vpn = QPushButton("Включено" if self.browser.config.get("require_vpn", False) else "Выключено")
         vpn.clicked.connect(lambda: self.toggle_bool("require_vpn", vpn))
         self.add_card("Требовать VPN", "Запрещает Orbit открывать внешние сайты, если в Windows не найден распространённый VPN-адаптер. Выключено по умолчанию.", vpn)
@@ -2045,7 +2045,7 @@ class SettingsPage(QWidget):
         from orbit_storage import save_config
         save_config(self.browser.config)
         if hasattr(self.browser, "home"):
-            self.browser.home.engine_hint.setText({"google":"Google","bing":"Bing","duckduckgo":"DuckDuckGo","orbit":"Orbit"}.get(self.browser.config["search_engine"], "Orbit"))
+            self.browser.home.engine_hint.setText({"google":"Google","bing":"Bing","duckduckgo":"DuckDuckGo","yandex":"Яндекс"}.get(self.browser.config["search_engine"], "Google"))
 
     def toggle_bool(self, key, button):
         enabled = not self.browser.config.get(key, True)

@@ -18,7 +18,7 @@ DEFAULT_CONFIG = {
     "theme": "VOID",
     "config_version": 3,
     "performance_mode": "performance",
-    "search_engine": "orbit",
+    "search_engine": "google",
     "site_theming": True,
     "animations": True,
     "weather_city": "Москва",
@@ -37,6 +37,7 @@ DEFAULT_CONFIG = {
     "proxy_url": "",
     "require_vpn": False,
     "hidden_nav": [],
+    "first_run_guide_seen": False,
 }
 
 DEFAULT_SHORTCUTS = []
@@ -71,12 +72,13 @@ def load_config():
         result.update(config)
     if result.get("theme") not in {"VOID", "ICE", "BLUE", "PURPLE", "CYBER", "SUNSET", "EMERALD", "RED"}:
         result["theme"] = "VOID"
-    if int(result.get("config_version", 1) or 1) < 3:
-        result["search_engine"] = "orbit"
-        result["performance_mode"] = "performance"
-        result["config_version"] = 3
-    if result.get("search_engine") not in {"google", "bing", "duckduckgo", "orbit"}:
-        result["search_engine"] = "orbit"
+    if int(result.get("config_version", 1) or 1) < 4:
+        if result.get("search_engine") == "orbit":
+            result["search_engine"] = "google"
+        result["performance_mode"] = result.get("performance_mode", "performance")
+        result["config_version"] = 4
+    if result.get("search_engine") not in {"google", "bing", "duckduckgo", "yandex"}:
+        result["search_engine"] = "google"
     write_json(CONFIG_FILE, result)
     return result
 

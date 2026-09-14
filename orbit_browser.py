@@ -11,7 +11,7 @@ from PySide6.QtCore import QUrl, QTimer, Qt, QStandardPaths, QSize, Signal, QThr
 from PySide6.QtGui import QAction, QPixmap, QIcon, QKeySequence, QShortcut
 from PySide6.QtWebEngineCore import QWebEnginePage, QWebEngineProfile, QWebEngineSettings
 from PySide6.QtWebEngineWidgets import QWebEngineView
-from PySide6.QtWidgets import QApplication, QFrame, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMessageBox, QPushButton, QTabWidget, QVBoxLayout, QWidget, QSplashScreen, QProgressDialog, QFileDialog, QMenu, QStyle, QTabBar
+from PySide6.QtWidgets import QApplication, QFrame, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMessageBox, QPushButton, QTabWidget, QVBoxLayout, QWidget, QSplashScreen, QProgressDialog, QFileDialog, QMenu, QStyle, QTabBar, QDialog, QComboBox
 
 from orbit_pages import HomePage, HistoryPage, BookmarksPage, NotesPage, DownloadsPage, SettingsPage, SearchPage, DiagnosticsPage, ProfilePage, LoginPage, GeminiPage, SupportPage, AdminPanelPage
 from orbit_storage import load_config, save_config, load_local_profile, save_local_profile, add_history, add_download, build_sync_bundle, apply_sync_bundle, sync_state_signature
@@ -19,7 +19,7 @@ from orbit_ui import THEMES, stylesheet, tr
 from orbit_secure import protect as secure_protect, unprotect as secure_unprotect
 
 APP_NAME = "Orbit Browser"
-APP_VERSION = "1.5"
+APP_VERSION = "1.6"
 API_URL = "https://orbit-api-9uqa.onrender.com"
 GITHUB_REPO = "larsendars-maker/OrbitBrowsers"
 WINDOWS_APP_USER_MODEL_ID = "Larsenda.OrbitBrowser"
@@ -191,6 +191,58 @@ class WelcomeOverlay(QFrame):
         self.done.emit()
 
 
+class FirstRunGuide(QDialog):
+    def __init__(self, browser, parent=None):
+        super().__init__(parent)
+        self.browser = browser
+        self.setWindowTitle("Orbit Browser — первый запуск")
+        self.setModal(True)
+        self.resize(620, 520)
+        self.setStyleSheet(stylesheet(browser.current_theme))
+        root = QVBoxLayout(self)
+        root.setContentsMargins(28, 26, 28, 22)
+        root.setSpacing(14)
+        title = QLabel(tr(browser.config.get("language", "ru"), "guide_title"))
+        title.setObjectName("pageTitle")
+        root.addWidget(title)
+        sub = QLabel(tr(browser.config.get("language", "ru"), "guide_sub"))
+        sub.setObjectName("muted")
+        root.addWidget(sub)
+
+        def card(head, body):
+            box = QFrame(); box.setObjectName("settingCard")
+            lay = QVBoxLayout(box); lay.setContentsMargins(16, 12, 16, 12)
+            h = QLabel(head); h.setObjectName("settingTitle")
+            b = QLabel(body); b.setObjectName("settingDescription"); b.setWordWrap(True)
+            lay.addWidget(h); lay.addWidget(b)
+            root.addWidget(box)
+        card("⚡ Производительность", "Максимальная скорость использует больше RAM/CPU, держит больше renderer-процессов и быстрее переключает вкладки. Сбалансированный режим экономит ресурсы.")
+        card("🎨 Темы", "Выберите тему в Настройках. Изменение применяется сразу и сохраняется автоматически после закрытия окна.")
+        card("🎮 Мини-игры", "Через кнопку «Мини-игры» можно открыть Snake и Block Blast прямо внутри Orbit. Игры работают и без интернета.")
+
+        engine_row = QFrame(); engine_row.setObjectName("settingCard")
+        er = QHBoxLayout(engine_row); er.setContentsMargins(16,12,16,12)
+        et = QLabel("Поисковая система по умолчанию"); et.setObjectName("settingTitle")
+        self.engine = QComboBox();
+        for label, data in [("Google","google"),("Bing","bing"),("DuckDuckGo","duckduckgo"),("Яндекс","yandex")]: self.engine.addItem(label,data)
+        idx = self.engine.findData(browser.config.get("search_engine","google")); self.engine.setCurrentIndex(idx if idx >= 0 else 0)
+        er.addWidget(et,1); er.addWidget(self.engine)
+        root.addWidget(engine_row)
+
+        buttons = QHBoxLayout(); buttons.addStretch()
+        ok = QPushButton("Понятно"); ok.setProperty("accent", True); ok.clicked.connect(self.accept)
+        buttons.addWidget(ok); root.addLayout(buttons)
+
+    def accept(self):
+        self.browser.config["search_engine"] = self.engine.currentData() or "google"
+        self.browser.config["first_run_guide_seen"] = True
+        save_config(self.browser.config)
+        if hasattr(self.browser, "home"):
+            name = {"google":"Google","bing":"Bing","duckduckgo":"DuckDuckGo","yandex":"Яндекс"}.get(self.browser.config["search_engine"], "Google")
+            self.browser.home.engine_hint.setText(name)
+        super().accept()
+
+
 class OrbitBrowser(QMainWindow):
     identityChanged = Signal()
 
@@ -273,6 +325,7 @@ class OrbitBrowser(QMainWindow):
             ("✦", "gemini", self.open_gemini),
             ("❔", "support", self.open_support),
             ("✎", "notes", self.open_notes),
+            ("🎮", "mini_games", self.open_mini_games),
             ("⚙", "settings", self.open_settings),
         ]
         role = (self.user or {}).get("role", "user").lower()
@@ -498,6 +551,18 @@ class OrbitBrowser(QMainWindow):
         save_config(self.config)
         self.apply_theme()
 
+    def open_mini_games(self):
+        path = resource_path("assets", "offline.html")
+        if not os.path.exists(path):
+            QMessageBox.warning(self, "Orbit", "Офлайн-игры недоступны.")
+            return
+        for i in range(self.tabs.count()):
+            w = self.tabs.widget(i)
+            if isinstance(w, BrowserView) and w.url().isLocalFile() and w.url().toLocalFile() == path:
+                self.tabs.setCurrentIndex(i); return
+        browser = self.new_browser_tab(QUrl.fromLocalFile(path).toString())
+        self.tabs.setTabText(self.tabs.indexOf(browser), "Мини-игры")
+
     def show_offline_page(self, browser=None):
         target = browser or self.current_browser()
         if target is None:
@@ -658,13 +723,11 @@ class OrbitBrowser(QMainWindow):
         "google": "https://www.google.com/search?q=",
         "bing": "https://www.bing.com/search?q=",
         "duckduckgo": "https://duckduckgo.com/?q=",
-        # Orbit — системный режим поиска. Пока собственного индекса нет, Orbit
-        # использует внешний results endpoint внутри текущей вкладки Orbit.
-        "orbit": "orbit://search?q=",
+        "yandex": "https://yandex.ru/search/?text=",
     }
 
     def search_url(self, query):
-        base = self.SEARCH_PROVIDERS.get(self.config.get("search_engine", "orbit"), self.SEARCH_PROVIDERS["orbit"])
+        base = self.SEARCH_PROVIDERS.get(self.config.get("search_engine", "google"), self.SEARCH_PROVIDERS["google"])
         return base + quote(query)
 
     def show_search_results(self, query):
@@ -672,18 +735,10 @@ class OrbitBrowser(QMainWindow):
 
     def open_orbit_search(self, query=""):
         if query:
-            self.show_web_area()
-            page = SearchPage(self, query, force_orbit=True)
-            i = self.tabs.addTab(page, "Orbit Search")
-            self.install_tab_close_button(i)
-            self.tabs.setCurrentIndex(i)
-            self.address.setText("orbit://search?q=" + quote(query))
-            return
-        self.show_web_area()
-        page = SearchPage(self, query)
-        i = self.tabs.addTab(page, "Поиск")
-        self.tabs.setCurrentIndex(i)
-        self.address.setText("orbit://search")
+            self.open_url(self.search_url(query))
+        else:
+            self.show_home_screen()
+
 
     def open_url(self, url):
         if not url.startswith("orbit://") and not self.network_allowed():
@@ -692,8 +747,11 @@ class OrbitBrowser(QMainWindow):
         if url.startswith("orbit://search"):
             from urllib.parse import parse_qs, urlparse, unquote
             parsed = urlparse(url)
-            query = parse_qs(parsed.query).get("q", [""])[0]
-            self.open_orbit_search(unquote(query))
+            query = unquote(parse_qs(parsed.query).get("q", [""])[0])
+            if query:
+                self.open_url(self.search_url(query))
+            else:
+                self.show_home_screen()
             return
         if url.startswith("orbit://history"):
             self.open_internal_page(HistoryPage(self), "История", "history")
@@ -1046,7 +1104,14 @@ def main():
     except Exception: pass
     session={"token":saved_token if local_profile and saved_token else None, "user":local_profile if local_profile and saved_token else None}
     window=OrbitBrowser(session,config); window.show()
-    welcome=WelcomeOverlay(window); welcome.setGeometry(window.rect()); welcome.raise_(); welcome.start()
+    welcome=WelcomeOverlay(window)
+    welcome.setGeometry(window.rect())
+    welcome.raise_()
+    welcome.start()
+    def after_welcome():
+        if not window.config.get("first_run_guide_seen", False):
+            QTimer.singleShot(180, lambda: FirstRunGuide(window, window).exec())
+    welcome.done.connect(after_welcome)
     if saved_token:
         thread=QThread(app); worker=SessionWorker(saved_token); worker.moveToThread(thread); thread.started.connect(worker.run)
         def on_session(result):
