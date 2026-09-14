@@ -20,7 +20,7 @@ from orbit_secure import protect as secure_protect, unprotect as secure_unprotec
 from orbit_core import OrbitCore, PerformancePolicy
 
 APP_NAME = "Orbit Browser"
-APP_VERSION = "1.12"
+APP_VERSION = "2.0"
 API_URL = "https://orbit-api-9uqa.onrender.com"
 GITHUB_REPO = "larsendars-maker/OrbitBrowsers"
 WINDOWS_APP_USER_MODEL_ID = "Larsenda.OrbitBrowser"

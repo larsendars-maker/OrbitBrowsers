@@ -74,6 +74,6 @@ jobs:
         run: |
           gh release view Windows *> $null
           if ($LASTEXITCODE -ne 0) {
-            gh release create Windows --title "Orbit Browser Windows" --notes "Orbit Browser 1.12 для Windows."
+            gh release create Windows --title "Orbit Browser Windows" --notes "Orbit Browser 2.0 для Windows."
           }
           gh release upload Windows build_out/OrbitBrowser.exe build_out/OrbitBrowser-Portable.exe installer/OrbitBrowser-Setup.exe --clobber
