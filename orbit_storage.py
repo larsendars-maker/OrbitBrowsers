@@ -67,7 +67,7 @@ def load_config():
     result = DEFAULT_CONFIG.copy()
     if isinstance(config, dict):
         result.update(config)
-    if result.get("theme") not in {"VOID", "ICE", "MIDNIGHT", "EMBER"}:
+    if result.get("theme") not in {"VOID", "ICE", "BLUE", "PURPLE", "CYBER", "SUNSET", "EMERALD", "RED"}:
         result["theme"] = "VOID"
     if result.get("search_engine") not in {"google", "bing", "duckduckgo", "orbit"}:
         result["search_engine"] = "orbit"
@@ -202,3 +202,42 @@ def remove_download(path):
     items = [x for x in load_downloads() if x.get("path") != path]
     save_downloads(items)
     return items
+
+# Orbit cloud sync: компактный общий снимок локальных пользовательских данных.
+def build_sync_bundle(config=None, user=None):
+    return {
+        "version": 1,
+        "user": user or {},
+        "config": config or load_config(),
+        "bookmarks": load_bookmarks(),
+        "notes": load_notes(),
+        "shortcuts": load_shortcuts(),
+        "history": load_history()[-500:],
+        "downloads": load_downloads()[-200:],
+    }
+
+
+def sync_state_signature(bundle):
+    import hashlib
+    raw = json.dumps(bundle, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def apply_sync_bundle(bundle, config=None):
+    if not isinstance(bundle, dict):
+        return
+    remote_config = bundle.get("config")
+    if isinstance(remote_config, dict):
+        local = load_config()
+        local.update(remote_config)
+        save_config(local)
+    if isinstance(bundle.get("bookmarks"), list):
+        save_bookmarks(bundle["bookmarks"])
+    if isinstance(bundle.get("notes"), list):
+        save_notes(bundle["notes"])
+    if isinstance(bundle.get("shortcuts"), list):
+        save_shortcuts(bundle["shortcuts"])
+    if isinstance(bundle.get("history"), list):
+        save_history(bundle["history"])
+    if isinstance(bundle.get("downloads"), list):
+        save_downloads(bundle["downloads"])

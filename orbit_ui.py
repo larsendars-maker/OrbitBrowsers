@@ -75,6 +75,54 @@ THEMES = {
         "search": "#fcf9ff",
         "search_text": "#1c1322",
     },
+    "CYBER": {
+        "bg": "#050913",
+        "surface": "#0a1222",
+        "surface2": "#101d36",
+        "border": "#214570",
+        "text": "#f4f9ff",
+        "muted": "#91a7c4",
+        "accent": "#39b8ff",
+        "accent2": "#b98cff",
+        "search": "#f8fbff",
+        "search_text": "#0b1120",
+    },
+    "SUNSET": {
+        "bg": "#10070d",
+        "surface": "#1d0d18",
+        "surface2": "#301323",
+        "border": "#5b2948",
+        "text": "#fff5fb",
+        "muted": "#c19aaa",
+        "accent": "#ff5fb0",
+        "accent2": "#ff9bca",
+        "search": "#fff8fc",
+        "search_text": "#22101a",
+    },
+    "EMERALD": {
+        "bg": "#04100d",
+        "surface": "#091914",
+        "surface2": "#10271e",
+        "border": "#214b3b",
+        "text": "#effff7",
+        "muted": "#91b1a2",
+        "accent": "#44e8a0",
+        "accent2": "#b3ffe0",
+        "search": "#f7fffb",
+        "search_text": "#0d1914",
+    },
+    "RED": {
+        "bg": "#100709",
+        "surface": "#1e0d12",
+        "surface2": "#32141d",
+        "border": "#5b2b36",
+        "text": "#fff4f6",
+        "muted": "#c29aa3",
+        "accent": "#ff5274",
+        "accent2": "#ffb0be",
+        "search": "#fff9fa",
+        "search_text": "#241117",
+    },
 }
 
 
@@ -144,13 +192,13 @@ def stylesheet(theme_name):
     }}
 
     QFrame#mainSearch {{
-        background: rgba(24, 18, 34, 150);
-        border: 1px solid rgba(167,124,255,22);
+        background: qlineargradient(x1:0,y1:0,x2:1,y2:1, stop:0 rgba(40,96,255,42), stop:0.52 rgba(94,62,255,50), stop:1 rgba(210,70,255,34));
+        border: 1px solid rgba(116,145,255,90);
         border-radius: 22px;
     }}
 
     QFrame#searchShell {{
-        background: {theme['surface']};
+        background: qlineargradient(x1:0,y1:0,x2:1,y2:0, stop:0 {theme['surface']}, stop:0.5 {theme['surface2']}, stop:1 {theme['surface']});
         border: 1px solid {theme['border']};
         border-radius: 20px;
     }}

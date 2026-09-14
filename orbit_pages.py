@@ -50,6 +50,47 @@ from orbit_storage import (
 from orbit_ui import THEMES, fade_in, tr
 
 
+
+
+class LoginPage(QWidget):
+    def __init__(self, browser):
+        super().__init__()
+        self.browser=browser
+        layout=QVBoxLayout(self)
+        layout.setContentsMargins(80,70,80,70)
+        title=QLabel("Orbit Account")
+        title.setObjectName("pageTitle")
+        layout.addWidget(title)
+        info=QLabel("Войдите или создайте аккаунт. Окно регистрации открывается внутри Orbit, без внешнего браузера.")
+        info.setWordWrap(True); info.setObjectName("muted"); layout.addWidget(info)
+        self.email=QLineEdit(); self.email.setPlaceholderText("Email"); layout.addWidget(self.email)
+        self.password=QLineEdit(); self.password.setPlaceholderText("Пароль"); self.password.setEchoMode(QLineEdit.EchoMode.Password); layout.addWidget(self.password)
+        self.username=QLineEdit(); self.username.setPlaceholderText("Имя пользователя — только для регистрации"); layout.addWidget(self.username)
+        row=QHBoxLayout()
+        login=QPushButton("Войти"); login.setProperty("accent",True); register=QPushButton("Создать аккаунт")
+        row.addWidget(login); row.addWidget(register); layout.addLayout(row)
+        self.status=QLabel(""); self.status.setWordWrap(True); self.status.setObjectName("muted"); layout.addWidget(self.status); layout.addStretch()
+        login.clicked.connect(self.login); register.clicked.connect(self.register)
+        fade_in(self)
+
+    def login(self):
+        email=self.email.text().strip(); password=self.password.text()
+        if not email or not password: self.status.setText("Введите email и пароль."); return
+        try:
+            r=requests.post(f"{self.browser.API_URL}/api/auth/login",json={"email":email,"password":password},timeout=12)
+            if r.status_code>=400: self.status.setText(r.text[:300]); return
+            data=r.json(); self.browser.set_session(data.get("token"),data.get("user")); self.browser.show_home_screen()
+        except Exception as exc: self.status.setText(f"Ошибка соединения: {exc}")
+
+    def register(self):
+        username=self.username.text().strip(); email=self.email.text().strip(); password=self.password.text()
+        if not username or not email or len(password)<8: self.status.setText("Для регистрации нужны имя, email и пароль минимум 8 символов."); return
+        try:
+            r=requests.post(f"{self.browser.API_URL}/api/auth/register",json={"username":username,"email":email,"password":password},timeout=12)
+            if r.status_code>=400: self.status.setText(r.text[:300]); return
+            data=r.json(); self.browser.set_session(data.get("token"),data.get("user")); self.browser.show_home_screen()
+        except Exception as exc: self.status.setText(f"Ошибка соединения: {exc}")
+
 class AddShortcutDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)

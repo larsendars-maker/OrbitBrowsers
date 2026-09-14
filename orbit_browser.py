@@ -7,18 +7,18 @@ import subprocess
 from urllib.parse import quote
 
 import requests
-from PySide6.QtCore import QUrl, QTimer, Qt, QStandardPaths, QSize, Signal
+from PySide6.QtCore import QUrl, QTimer, Qt, QStandardPaths, QSize, Signal, QThread, QObject, QEasingCurve, QPropertyAnimation
 from PySide6.QtGui import QAction, QPixmap, QIcon, QKeySequence, QShortcut
 from PySide6.QtWebEngineCore import QWebEnginePage, QWebEngineProfile, QWebEngineSettings
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import QApplication, QFrame, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMessageBox, QPushButton, QTabWidget, QVBoxLayout, QWidget, QSplashScreen, QProgressDialog, QFileDialog, QMenu, QStyle, QTabBar
 
-from orbit_pages import HomePage, HistoryPage, BookmarksPage, NotesPage, DownloadsPage, SettingsPage, SearchPage, DiagnosticsPage, ProfilePage, GeminiPage, SupportPage, AdminPanelPage
-from orbit_storage import load_config, save_config, load_local_profile, save_local_profile, add_history, add_download
+from orbit_pages import HomePage, HistoryPage, BookmarksPage, NotesPage, DownloadsPage, SettingsPage, SearchPage, DiagnosticsPage, ProfilePage, LoginPage, GeminiPage, SupportPage, AdminPanelPage
+from orbit_storage import load_config, save_config, load_local_profile, save_local_profile, add_history, add_download, build_sync_bundle, apply_sync_bundle, sync_state_signature
 from orbit_ui import THEMES, stylesheet, tr
 
 APP_NAME = "Orbit Browser"
-APP_VERSION = "1.16.17"
+APP_VERSION = "1.16.21"
 API_URL = "https://orbit-api-9uqa.onrender.com"
 GITHUB_REPO = "larsendars-maker/OrbitBrowsers"
 WINDOWS_APP_USER_MODEL_ID = "Larsenda.OrbitBrowser"
@@ -116,6 +116,67 @@ class BrowserView(QWebEngineView):
         self.page().runJavaScript(js)
 
 
+class SessionWorker(QObject):
+    finished = Signal(object)
+
+    def __init__(self, token):
+        super().__init__()
+        self.token = token
+
+    def run(self):
+        result = None
+        if self.token:
+            try:
+                r = requests.get(f"{API_URL}/api/auth/session", headers={"Authorization": f"Bearer {self.token}"}, timeout=8)
+                if r.status_code == 200:
+                    data = r.json()
+                    if data.get("ok") and data.get("user"):
+                        result = {"token": self.token, "user": data["user"]}
+            except Exception:
+                pass
+        self.finished.emit(result)
+
+
+class WelcomeOverlay(QFrame):
+    done = Signal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setObjectName("welcomeOverlay")
+        self.setStyleSheet("QFrame#welcomeOverlay{background:#07050d;border:none;} QLabel{color:white;}")
+        layout = QVBoxLayout(self)
+        layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.title = QLabel("WELCOM")
+        self.title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.title.setStyleSheet("font-size:64px;font-weight:900;letter-spacing:12px;color:#f7f0ff;")
+        self.subtitle = QLabel("ORBIT BROWSER")
+        self.subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.subtitle.setStyleSheet("font-size:11px;font-weight:700;letter-spacing:6px;color:#9f7cff;margin-top:8px;")
+        layout.addWidget(self.title)
+        layout.addWidget(self.subtitle)
+        from PySide6.QtWidgets import QGraphicsOpacityEffect
+        self.opacity = QGraphicsOpacityEffect(self)
+        self.setGraphicsEffect(self.opacity)
+        self.opacity.setOpacity(0.0)
+        self.anim = QPropertyAnimation(self.opacity, b"opacity", self)
+        self.anim.setDuration(850)
+        self.anim.setStartValue(0.0)
+        self.anim.setKeyValueAt(0.35, 1.0)
+        self.anim.setKeyValueAt(0.78, 1.0)
+        self.anim.setEndValue(0.0)
+        self.anim.setEasingCurve(QEasingCurve.Type.InOutCubic)
+        self.anim.finished.connect(self._finish)
+
+    def start(self):
+        self.show()
+        self.raise_()
+        self.anim.start()
+
+    def _finish(self):
+        self.hide()
+        self.done.emit()
+
+
 class OrbitBrowser(QMainWindow):
     identityChanged = Signal()
 
@@ -126,6 +187,11 @@ class OrbitBrowser(QMainWindow):
         # Анонимный режим не создаёт виртуального/гостевого пользователя.
         self.is_guest = not bool(self.token and self.user)
         self.config = config
+        self._sync_last_signature = ""
+        self._sync_running = False
+        self._sync_timer = QTimer(self)
+        self._sync_timer.setInterval(5000)
+        self._sync_timer.timeout.connect(self.sync_now)
         self.current_theme = config.get("theme", "VOID")
         self.API_URL = API_URL
         self.THEMES = THEMES
@@ -161,6 +227,8 @@ class OrbitBrowser(QMainWindow):
         self.update_timer.setInterval(30 * 60 * 1000)
         self.update_timer.timeout.connect(self.check_updates)
         self.update_timer.start()
+        self._sync_timer.start()
+        QTimer.singleShot(1200, self.sync_now)
 
     def build_ui(self):
         central = QWidget()
@@ -257,7 +325,7 @@ class OrbitBrowser(QMainWindow):
         self.address.returnPressed.connect(self.navigate)
         top.addWidget(self.address, 1)
 
-        profile = QPushButton(self.user.get("display_name") or self.user.get("username", "Аккаунт"))
+        profile = QPushButton((self.user or {}).get("display_name") or (self.user or {}).get("username", "Войти"))
         profile.setObjectName("topProfile")
         profile.setMinimumSize(150, 42)
         profile.setMaximumWidth(190)
@@ -348,6 +416,19 @@ class OrbitBrowser(QMainWindow):
             self.home.apply_language()
         self.setWindowTitle("Orbit Browser" if language == "en" else "Orbit Browser")
         save_config(self.config)
+
+    def rebuild_navigation(self):
+        # Rebuild the sidebar after login/session restore so role visibility updates immediately.
+        current=self.tabs.currentWidget() if hasattr(self, "tabs") else None
+        if hasattr(self, "sidebar") and self.sidebar.parentWidget():
+            old=self.sidebar
+            layout=old.parentWidget().layout()
+            if layout:
+                layout.removeWidget(old)
+                old.deleteLater()
+        # Lightweight refresh: rebuild the whole central UI while preserving the current tab widgets.
+        if hasattr(self, "home"):
+            self.update_identity_ui()
 
     def apply_theme(self):
         QApplication.instance().setStyleSheet(stylesheet(self.current_theme))
@@ -632,18 +713,32 @@ class OrbitBrowser(QMainWindow):
     def open_settings(self):
         self.open_internal_page(SettingsPage(self), "Настройки")
 
+    def set_session(self, token, user):
+        self.token=token; self.user=user if isinstance(user,dict) else None
+        self.is_guest=not bool(self.token and self.user)
+        if self.token:
+            try:
+                with open(SESSION_FILE,"w",encoding="utf-8") as f: json.dump({"token":self.token},f)
+            except Exception: pass
+            save_local_profile(self.user or {})
+        self.update_identity_ui(); self.rebuild_navigation(); self.sync_now()
+
+    def rebuild_navigation(self):
+        role=(self.user or {}).get("role","user").lower() if not self.is_guest else "guest"
+        if hasattr(self,"nav_buttons"):
+            admin_button=self.nav_buttons.get("admin")
+            if role in {"helper","admin"}:
+                if not admin_button:
+                    button=QPushButton("◆   Админ-панель"); button.setObjectName("sidebarNav"); button.clicked.connect(self.open_admin_panel)
+                    self.sidebar.layout().insertWidget(max(0,self.sidebar.layout().count()-1),button); self.nav_buttons["admin"]=(button,"◆")
+                else: admin_button[0].setVisible(True)
+            elif admin_button:
+                admin_button[0].setVisible(False)
+        self.apply_language()
+
     def open_profile_page(self):
-        if self.is_guest:
-            # Для гостя верхняя кнопка является компактной точкой входа.
-            # Открываем официальный Orbit-сайт в текущей вкладке, где доступны вход и регистрация.
-            self.show_web_area()
-            browser = self.current_browser()
-            login_url = self.API_URL.rstrip("/") + "/"
-            if not browser:
-                browser = self.new_browser_tab(login_url)
-            else:
-                browser.setUrl(QUrl(login_url))
-            self.address.setText(login_url)
+        if not self.token:
+            self.open_internal_page(LoginPage(self), "Войти")
             return
         self.open_internal_page(ProfilePage(self), "Профиль")
 
@@ -726,6 +821,26 @@ class OrbitBrowser(QMainWindow):
         except Exception:
             pass
 
+    def sync_now(self):
+        if not self.token or self._sync_running: return
+        bundle=build_sync_bundle(self.config,self.user)
+        signature=sync_state_signature(bundle)
+        self._sync_running=True
+        outbound_bundle=bundle if signature != self._sync_last_signature else {}
+        thread=QThread(self); worker=SyncRequestWorker(self.API_URL,self.token,outbound_bundle,signature if outbound_bundle else "")
+        worker.moveToThread(thread); thread.started.connect(worker.run)
+        def done(ok,remote):
+            self._sync_running=False
+            if ok and isinstance(remote,dict):
+                apply_sync_bundle(remote,self.config)
+                if remote.get("user"):
+                    self.user=dict(self.user or {}); self.user.update(remote["user"]); save_local_profile(self.user)
+                self._sync_last_signature=sync_state_signature(build_sync_bundle(self.config,self.user))
+                self.update_identity_ui()
+                self.rebuild_navigation()
+            thread.quit()
+        worker.finished.connect(done); thread.finished.connect(worker.deleteLater); thread.finished.connect(thread.deleteLater); thread.start()
+
     @staticmethod
     def _version_tuple(value):
         nums = []
@@ -801,51 +916,55 @@ class OrbitBrowser(QMainWindow):
             QMessageBox.warning(self, "Не удалось обновить Orbit", str(exc))
 
 
+class SyncRequestWorker(QObject):
+    finished=Signal(bool,object)
+    def __init__(self,api_url,token,bundle,signature):
+        super().__init__(); self.api_url=api_url; self.token=token; self.bundle=bundle; self.signature=signature
+    def run(self):
+        try:
+            headers={"Authorization":f"Bearer {self.token}"}
+            if self.signature and self.bundle:
+                r=requests.post(f"{self.api_url}/api/sync/state",json={"state":self.bundle,"signature":self.signature},headers=headers,timeout=8)
+                if r.status_code==200:
+                    self.finished.emit(True,r.json().get("state")); return
+            r=requests.get(f"{self.api_url}/api/sync/state",headers=headers,timeout=8)
+            if r.status_code==200:
+                self.finished.emit(True,r.json().get("state")); return
+            self.finished.emit(False,None)
+        except Exception:
+            self.finished.emit(False,None)
+
+
 def main():
     configure_windows_identity()
     os.makedirs(os.path.dirname(SESSION_FILE), exist_ok=True)
-    config = load_config()
-    proxy_url = str(config.get("proxy_url", "")).strip()
+    config=load_config()
+    flags=os.environ.get("QTWEBENGINE_CHROMIUM_FLAGS", "")
+    optimizations=" --disable-background-networking --disable-component-update --disable-domain-reliability --disable-features=Translate,MediaRouter,OptimizationHints --renderer-process-limit=4"
+    os.environ["QTWEBENGINE_CHROMIUM_FLAGS"]=(flags+optimizations).strip()
+    proxy_url=str(config.get("proxy_url", "")).strip()
     if proxy_url:
-        os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = "--proxy-server=" + proxy_url
-    app = QApplication(sys.argv)
-    icon_path = resource_path("assets", "orbit_icon.ico")
-    if os.path.exists(icon_path):
-        app.setWindowIcon(QIcon(icon_path))
-    app.setApplicationName(APP_NAME)
-    app.setApplicationVersion(APP_VERSION)
-    app.setStyleSheet(stylesheet(config.get("theme", "VOID")))
-
-    print(f"Запуск {APP_NAME} {APP_VERSION}")
-
-    splash = QSplashScreen(QPixmap(760, 390))
-    splash.setStyleSheet("background:#07050d; color:#f6f1ff;")
-    splash.showMessage(
-        "ORBIT\n\nWelcome to Orbit Browser",
-        Qt.AlignmentFlag.AlignCenter,
-        Qt.GlobalColor.white,
-    )
-    splash.show()
-    app.processEvents()
-    if not check_api():
-        QMessageBox.warning(None, "Orbit API", f"Orbit API недоступен.\n\n{API_URL}")
-    session = load_session()
-    if not session:
-        # Никакого дефолтного/гостевого пользователя. До авторизации аккаунта нет.
-        session = {"token": None, "user": None}
-    local_profile = load_local_profile() if session.get("user") else {}
-    if local_profile and session.get("user"):
-        merged = dict(session["user"])
-        merged.update({k: v for k, v in local_profile.items() if k in {"display_name", "bio", "title", "profile_theme", "unlocked_titles", "equipped_title"}})
-        session["user"] = merged
-    window = OrbitBrowser(session, config)
-    window.hide()
-
-    def launch_main():
-        window.show()
-        splash.finish(window)
-
-    QTimer.singleShot(1100, launch_main)
+        os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] += " --proxy-server="+proxy_url
+    app=QApplication(sys.argv)
+    icon_path=resource_path("assets","orbit_icon.ico")
+    if os.path.exists(icon_path): app.setWindowIcon(QIcon(icon_path))
+    app.setApplicationName(APP_NAME); app.setApplicationVersion(APP_VERSION)
+    app.setStyleSheet(stylesheet(config.get("theme","VOID")))
+    local_profile=load_local_profile(); saved_token=None
+    try:
+        if os.path.exists(SESSION_FILE):
+            with open(SESSION_FILE,"r",encoding="utf-8") as f: saved_token=json.load(f).get("token")
+    except Exception: pass
+    session={"token":saved_token if local_profile and saved_token else None, "user":local_profile if local_profile and saved_token else None}
+    window=OrbitBrowser(session,config); window.show()
+    welcome=WelcomeOverlay(window); welcome.setGeometry(window.rect()); welcome.raise_(); welcome.start()
+    if saved_token:
+        thread=QThread(app); worker=SessionWorker(saved_token); worker.moveToThread(thread); thread.started.connect(worker.run)
+        def on_session(result):
+            if result:
+                window.token=result["token"]; window.user=result["user"]; window.is_guest=False; save_local_profile(window.user); window.update_identity_ui(); window.sync_now()
+            thread.quit(); worker.deleteLater()
+        worker.finished.connect(on_session); thread.finished.connect(thread.deleteLater); thread.start()
     sys.exit(app.exec())
 
 

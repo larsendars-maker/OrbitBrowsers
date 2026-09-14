@@ -1,1 +1,9 @@
-<resources><color name="orbit_bg">#070812</color><color name="orbit_surface">#101225</color><color name="orbit_surface2">#171936</color><color name="orbit_accent">#9B7CFF</color><color name="orbit_text">#F5F3FF</color><color name="orbit_muted">#9D9AB4</color></resources>
+<resources>
+    <color name="orbit_bg">#050814</color>
+    <color name="orbit_surface">#0B1222</color>
+    <color name="orbit_surface2">#111D35</color>
+    <color name="orbit_accent">#6F83FF</color>
+    <color name="orbit_accent2">#C08AFF</color>
+    <color name="orbit_text">#F5F8FF</color>
+    <color name="orbit_muted">#94A9C5</color>
+</resources>

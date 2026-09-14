@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import psycopg
+from psycopg.types.json import Jsonb
 from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, PlainTextResponse, RedirectResponse
@@ -16,7 +17,7 @@ try:
 except Exception:
     genai = None
 
-APP_VERSION = "1.16.17"
+APP_VERSION = "1.16.21"
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
 DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 FOUNDER_USERNAME = os.getenv("ORBIT_FOUNDER_USERNAME", "Larsenda").strip() or "Larsenda"
@@ -123,6 +124,10 @@ class ProfileUpdate(BaseModel):
     display_name: str
     bio: str
     profile_theme: str
+
+
+class SyncStateRequest(BaseModel):
+    state: dict
 
 
 class RoleUpdate(BaseModel):
@@ -437,6 +442,59 @@ def profile(data: ProfileUpdate, authorization: str | None = Header(default=None
     return {"ok": True, "user": row_user(current_user(bearer(authorization)))}
 
 
+@app.get("/api/sync/state")
+def get_sync_state(authorization: str | None = Header(default=None)):
+    row=require_user(authorization)
+    with db() as conn, conn.cursor() as cur:
+        cur.execute("SELECT state FROM user_sync_state WHERE user_id=%s",(row[0],))
+        item=cur.fetchone()
+    state=item[0] if item and isinstance(item[0],dict) else {}
+    state["user"] = row_user(row)
+    return {"ok":True,"state":state}
+
+
+@app.post("/api/sync/state")
+def sync_state(data: SyncStateRequest, authorization: str | None = Header(default=None)):
+    row = require_user(authorization)
+    # Таблица создаётся лениво, поэтому старую БД не требуется вручную мигрировать.
+    with db() as conn, conn.cursor() as cur:
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS user_sync_state (
+                user_id BIGINT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+                state JSONB NOT NULL,
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+        """)
+        cur.execute("SELECT state FROM user_sync_state WHERE user_id=%s", (row[0],))
+        old = cur.fetchone()
+        incoming = data.state if isinstance(data.state, dict) else {}
+        if old and isinstance(old[0], dict) and old[0]:
+            current = old[0]
+            # Последнее сохранение клиента является источником правды для локальных данных.
+            # Сервер всегда возвращает актуальный профиль из БД отдельно.
+            merged = dict(current)
+            merged.update(incoming)
+        else:
+            merged = incoming
+        cur.execute("""
+            INSERT INTO user_sync_state(user_id,state,updated_at)
+            VALUES(%s,%s,NOW())
+            ON CONFLICT(user_id) DO UPDATE SET state=EXCLUDED.state,updated_at=NOW()
+        """, (row[0], Jsonb(merged)))
+        cur.execute("SELECT display_name,bio,title,profile_theme,role FROM users WHERE id=%s", (row[0],))
+        profile = cur.fetchone()
+        conn.commit()
+    user = {
+        "display_name": profile[0] if profile else row[3],
+        "bio": profile[1] if profile else row[4],
+        "title": profile[2] if profile else row[5],
+        "profile_theme": profile[3] if profile else row[7],
+        "role": (profile[4] if profile else row[8]).lower(),
+    }
+    merged["user"] = user
+    return {"ok": True, "state": merged}
+
+
 @app.get("/api/profile/titles")
 def profile_titles(authorization: str | None = Header(default=None)):
     row = require_user(authorization)
@@ -729,7 +787,8 @@ def ai_chat(data: GeminiChatRequest, authorization: str | None = Header(default=
 def public_site_stats():
     stats = site_stats()
     return {"ok": True, "views": stats["views"], "unique_views": stats["unique_views"],
-            "downloads": stats["downloads"], "unique_downloads": stats["unique_downloads"]}
+            "downloads": stats["downloads"], "unique_downloads": stats["unique_downloads"],
+            "users": stats["users"]}
 
 
 @app.get("/api/downloads")
