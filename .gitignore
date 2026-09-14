@@ -26,3 +26,8 @@ credentials/
 
 # Build outputs
 *.pyc
+# Orbit local runtime data
+data/orbit.db
+data/orbit.db-*
+data/storage_migration.json
+OrbitBrowser/

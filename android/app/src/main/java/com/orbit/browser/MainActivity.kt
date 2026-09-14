@@ -221,11 +221,12 @@ class MainActivity : ComponentActivity() {
             javaScriptEnabled = true
             domStorageEnabled = true
             databaseEnabled = false
-            cacheMode = WebSettings.LOAD_DEFAULT
+            cacheMode = WebSettings.LOAD_CACHE_ELSE_NETWORK
             builtInZoomControls = false
             displayZoomControls = false
             setSupportZoom(true)
             setSupportMultipleWindows(false)
+            setMediaPlaybackRequiresUserGesture(true)
             javaScriptCanOpenWindowsAutomatically = false
             userAgentString = "$userAgentString OrbitBrowser/$appVersion"
         }

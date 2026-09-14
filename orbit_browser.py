@@ -11,15 +11,16 @@ from PySide6.QtCore import QUrl, QTimer, Qt, QStandardPaths, QSize, Signal, QThr
 from PySide6.QtGui import QAction, QPixmap, QIcon, QKeySequence, QShortcut
 from PySide6.QtWebEngineCore import QWebEnginePage, QWebEngineProfile, QWebEngineSettings
 from PySide6.QtWebEngineWidgets import QWebEngineView
-from PySide6.QtWidgets import QApplication, QFrame, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMessageBox, QPushButton, QTabWidget, QVBoxLayout, QWidget, QSplashScreen, QProgressDialog, QFileDialog, QMenu, QStyle, QTabBar, QDialog, QComboBox
+from PySide6.QtWidgets import QApplication, QFrame, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMessageBox, QPushButton, QTabWidget, QVBoxLayout, QWidget, QSplashScreen, QProgressDialog, QFileDialog, QMenu, QStyle, QTabBar, QDialog, QComboBox, QListWidget, QListWidgetItem
 
 from orbit_pages import HomePage, HistoryPage, BookmarksPage, NotesPage, DownloadsPage, SettingsPage, SearchPage, DiagnosticsPage, ProfilePage, LoginPage, GeminiPage, SupportPage, AdminPanelPage
-from orbit_storage import load_config, save_config, load_local_profile, save_local_profile, add_history, add_download, build_sync_bundle, apply_sync_bundle, sync_state_signature
+from orbit_storage import load_config, save_config, load_local_profile, save_local_profile, add_history, add_download, build_sync_bundle, apply_sync_bundle, sync_state_signature, initialize_database
 from orbit_ui import THEMES, stylesheet, tr
 from orbit_secure import protect as secure_protect, unprotect as secure_unprotect
+from orbit_core import OrbitCore, PerformancePolicy
 
 APP_NAME = "Orbit Browser"
-APP_VERSION = "1.6"
+APP_VERSION = "1.12"
 API_URL = "https://orbit-api-9uqa.onrender.com"
 GITHUB_REPO = "larsendars-maker/OrbitBrowsers"
 WINDOWS_APP_USER_MODEL_ID = "Larsenda.OrbitBrowser"
@@ -216,7 +217,7 @@ class FirstRunGuide(QDialog):
             b = QLabel(body); b.setObjectName("settingDescription"); b.setWordWrap(True)
             lay.addWidget(h); lay.addWidget(b)
             root.addWidget(box)
-        card("⚡ Производительность", "Максимальная скорость использует больше RAM/CPU, держит больше renderer-процессов и быстрее переключает вкладки. Сбалансированный режим экономит ресурсы.")
+        card("⚡ Быстрый режим", "Orbit автоматически использует быстрые настройки браузера. Отдельного медленного режима нет — интерфейс не вводит искусственных задержек.")
         card("🎨 Темы", "Выберите тему в Настройках. Изменение применяется сразу и сохраняется автоматически после закрытия окна.")
         card("🎮 Мини-игры", "Через кнопку «Мини-игры» можно открыть Snake и Block Blast прямо внутри Orbit. Игры работают и без интернета.")
 
@@ -243,6 +244,88 @@ class FirstRunGuide(QDialog):
         super().accept()
 
 
+class CommandPalette(QDialog):
+    """Instant command/navigation launcher for Ctrl+K."""
+    def __init__(self, browser, parent=None):
+        super().__init__(parent or browser)
+        self.browser = browser
+        self.setWindowTitle("Orbit Command Center")
+        self.setModal(True)
+        self.setMinimumSize(680, 460)
+        self.setStyleSheet(stylesheet(browser.current_theme))
+        root = QVBoxLayout(self)
+        root.setContentsMargins(18, 18, 18, 18)
+        root.setSpacing(10)
+        title = QLabel("COMMAND CENTER")
+        title.setObjectName("pageTitle")
+        root.addWidget(title)
+        self.search = QLineEdit()
+        self.search.setPlaceholderText("Вкладки, страницы, закладки, команды…")
+        root.addWidget(self.search)
+        self.list = QListWidget()
+        self.list.setObjectName("commandList")
+        root.addWidget(self.list, 1)
+        self.actions = []
+        self._rebuild("")
+        self.search.textChanged.connect(self._rebuild)
+        self.search.returnPressed.connect(self._run_current)
+        self.list.itemDoubleClicked.connect(lambda _item: self._run_current())
+        self.list.currentRowChanged.connect(lambda _row: None)
+        self.search.setFocus()
+
+    def _catalog(self):
+        b = self.browser
+        rows = [
+            ("Новая вкладка", lambda: b.new_browser_tab("about:blank")),
+            ("Главная", b.show_home_screen),
+            ("История", b.open_history),
+            ("Закладки", b.open_bookmarks),
+            ("Загрузки", b.open_downloads),
+            ("Заметки", b.open_notes),
+            ("Профиль", b.open_profile_page),
+            ("Настройки", b.open_settings),
+            ("Мини-игры", b.open_mini_games),
+            ("Диагностика", b.open_diagnostics),
+            ("Тема VOID", lambda: b.change_theme("VOID")),
+            ("Тема ICE", lambda: b.change_theme("ICE")),
+            ("Тема BLUE", lambda: b.change_theme("BLUE")),
+            ("Тема PURPLE", lambda: b.change_theme("PURPLE")),
+            ("Тема CYBER", lambda: b.change_theme("CYBER")),
+            ("Тема SUNSET", lambda: b.change_theme("SUNSET")),
+            ("Тема EMERALD", lambda: b.change_theme("EMERALD")),
+            ("Тема RED", lambda: b.change_theme("RED")),
+        ]
+        try:
+            for item in b.config.get("command_palette_recent", [])[:8]:
+                text = str(item)
+                if text:
+                    rows.insert(0, (f"Недавнее: {text}", lambda t=text: b.execute_command(t)))
+        except Exception:
+            pass
+        return rows
+
+    def _rebuild(self, query):
+        query = str(query or "").strip().lower()
+        self.list.clear()
+        self.actions.clear()
+        for label, fn in self._catalog():
+            if not query or query in label.lower():
+                self.list.addItem(QListWidgetItem(label))
+                self.actions.append(fn)
+        if self.list.count():
+            self.list.setCurrentRow(0)
+
+    def _run_current(self):
+        row = self.list.currentRow()
+        if 0 <= row < len(self.actions):
+            fn = self.actions[row]
+            self.accept()
+            try:
+                fn()
+            except Exception:
+                pass
+
+
 class OrbitBrowser(QMainWindow):
     identityChanged = Signal()
 
@@ -253,7 +336,10 @@ class OrbitBrowser(QMainWindow):
         # Анонимный режим не создаёт виртуального/гостевого пользователя.
         self.is_guest = not bool(self.token and self.user)
         self.config = config
+        initialize_database()
+        self.core = OrbitCore(max_workers=4)
         self._sync_last_signature = ""
+        self.last_closed_tabs = list(self.config.get("last_closed_tabs", [])) if isinstance(self.config.get("last_closed_tabs", []), list) else []
         self._sync_running = False
         self._sync_timer = QTimer(self)
         self._sync_timer.setInterval(60000)
@@ -271,7 +357,7 @@ class OrbitBrowser(QMainWindow):
             self.web_profile.setCachePath(cache_root)
             self.web_profile.setPersistentStoragePath(storage_root)
             self.web_profile.setHttpCacheType(QWebEngineProfile.HttpCacheType.DiskHttpCache)
-            self.web_profile.setHttpCacheMaximumSize(256 * 1024 * 1024)
+            self.web_profile.setHttpCacheMaximumSize(PerformancePolicy.WEBENGINE_CACHE_MB * 1024 * 1024)
         except Exception:
             pass
         self.setWindowTitle("Orbit Browser")
@@ -286,9 +372,11 @@ class OrbitBrowser(QMainWindow):
             save_local_profile(self.user)
         self.build_ui()
         self.update_identity_ui()
-        self.update_mode_button()
+        self.config["performance_mode"] = "performance"
+        save_config(self.config)
         self.apply_theme()
         self.show_home_screen()
+        self.restore_session_tabs()
         self.update_timer = QTimer(self)
         QTimer.singleShot(5000, self.check_updates)
         self.update_timer.setInterval(30 * 60 * 1000)
@@ -399,12 +487,6 @@ class OrbitBrowser(QMainWindow):
         profile.clicked.connect(self.open_profile_page)
         top.addWidget(profile)
 
-        self.mode_button = QPushButton("⚡")
-        self.mode_button.setFixedSize(42, 42)
-        self.mode_button.setToolTip("Режим производительности")
-        self.mode_button.clicked.connect(self.toggle_performance_mode)
-        top.addWidget(self.mode_button)
-
         content.addWidget(chrome)
 
         self.tabs = QTabWidget()
@@ -422,11 +504,29 @@ class OrbitBrowser(QMainWindow):
         self.tabs.tabCloseRequested.connect(self.close_tab)
         self.tabs.currentChanged.connect(self.sync_address)
         self.tabs.currentChanged.connect(lambda _i: self.update_tab_widths())
+        self.tabs.tabBar().setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.tabs.tabBar().customContextMenuRequested.connect(self.open_tab_context_menu)
         self.close_shortcut = QShortcut(QKeySequence("Ctrl+W"), self)
         self.close_shortcut.activated.connect(self.close_current_tab)
         self.admin_shortcut = QShortcut(QKeySequence("Ctrl+Shift+A"), self)
         self.admin_shortcut.setContext(Qt.ShortcutContext.ApplicationShortcut)
         self.admin_shortcut.activated.connect(self.open_admin_panel)
+        self.shortcuts = []
+        for seq, fn in [
+            ("Ctrl+L", lambda: self.address.setFocus()),
+            ("Ctrl+T", lambda: self.new_browser_tab("about:blank")),
+            ("Ctrl+Shift+T", self.restore_last_closed_tab),
+            ("Ctrl+H", self.open_history),
+            ("Ctrl+D", self.bookmark_current_page),
+            ("Ctrl+J", self.open_downloads),
+            ("Ctrl+K", self.open_command_center),
+            ("Alt+Left", self.go_back),
+            ("Alt+Right", self.go_forward),
+        ]:
+            sc = QShortcut(QKeySequence(seq), self)
+            sc.setContext(Qt.ShortcutContext.ApplicationShortcut)
+            sc.activated.connect(fn)
+            self.shortcuts.append(sc)
 
         self.home = HomePage(self)
         home_index = self.tabs.addTab(self.home, "Главная")
@@ -439,33 +539,29 @@ class OrbitBrowser(QMainWindow):
         self.web_profile.downloadRequested.connect(self.handle_download_request)
 
         root.addLayout(content, 1)
-    def performance_mode(self):
-        return self.config.get("performance_mode", "performance")
-
-    def toggle_performance_mode(self):
-        current = self.performance_mode()
-        new_mode = "balanced" if current == "performance" else "performance"
-        self.config["performance_mode"] = new_mode
-        save_config(self.config)
-        self.apply_chromium_performance()
-        self.update_mode_button()
-
-    def update_mode_button(self):
-        if not hasattr(self, "mode_button"):
+    def restore_session_tabs(self):
+        urls = self.config.get("session_tabs") or []
+        if not isinstance(urls, list):
             return
-        if self.performance_mode() == "performance":
-            self.mode_button.setText("⚡")
-            self.mode_button.setToolTip("Режим: Производительность")
-        else:
-            self.mode_button.setText("◌")
-            self.mode_button.setToolTip("Режим: Сбалансированный")
+        valid=[]
+        for url in urls:
+            if isinstance(url,str) and (url.startswith("http://") or url.startswith("https://") or url.startswith("file:")):
+                if url not in valid:
+                    valid.append(url)
+        for url in valid[:PerformancePolicy.MAX_RESTORED_TABS]:
+            try:
+                self.new_browser_tab(url)
+            except Exception:
+                break
+
+    def performance_mode(self):
+        return "performance"
 
     def apply_chromium_performance(self):
-        # Перезапуск процесса Chromium не нужен: применяем лёгкие настройки сразу,
-        # а основные флаги задаются до создания QApplication.
-        limit = 4 if self.performance_mode() == "performance" else 2
+        # Orbit always runs in fast mode; no artificial throttling or user-facing toggle.
+        limit = 4
         try:
-            os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = f"--disable-background-networking --disable-component-update --disable-domain-reliability --disable-features=Translate,MediaRouter,OptimizationHints --renderer-process-limit={limit}"
+            os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = PerformancePolicy.webengine_flags() + f" --renderer-process-limit={limit}"
             if self.config.get("proxy_url"):
                 os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] += " --proxy-server=" + str(self.config["proxy_url"])
         except Exception:
@@ -552,19 +648,480 @@ class OrbitBrowser(QMainWindow):
         self.apply_theme()
 
     def open_mini_games(self):
-        """Открыть мини-игры в обычной вкладке Orbit, без отдельного окна."""
-        from pathlib import Path
-        candidates = [
-            Path(__file__).with_name("web") / "games.html",
-            Path(__file__).with_name("assets") / "offline.html",
-        ]
-        for path in candidates:
-            if path.exists():
-                browser = self.new_browser_tab(QUrl.fromLocalFile(str(path.resolve())))
-                self.tabs.setTabText(self.tabs.currentIndex(), "Мини-игры")
-                return browser
-        QMessageBox.warning(self, "Orbit", "Файл мини-игр не найден.")
-        return None
+        path = resource_path("assets", "offline.html")
+        if not os.path.exists(path):
+            QMessageBox.warning(self, "Orbit", "Офлайн-игры недоступны.")
+            return
+        for i in range(self.tabs.count()):
+            w = self.tabs.widget(i)
+            if isinstance(w, BrowserView) and w.url().isLocalFile() and w.url().toLocalFile() == path:
+                self.tabs.setCurrentIndex(i); return
+        browser = self.new_browser_tab(QUrl.fromLocalFile(path).toString())
+        self.tabs.setTabText(self.tabs.indexOf(browser), "Мини-игры")
+
+    def show_offline_page(self, browser=None):
+        target = browser or self.current_browser()
+        if target is None:
+            target = self.new_browser_tab()
+        path = resource_path("assets", "offline.html")
+        if os.path.exists(path):
+            try:
+                target.setUrl(QUrl.fromLocalFile(path))
+            except Exception:
+                pass
+
+    def show_home_screen(self):
+        if hasattr(self, "tabs"):
+            self.tabs.setCurrentWidget(self.home)
+        self.address.clear()
+        self.home.refresh_shortcuts()
+
+    def show_web_area(self):
+        if hasattr(self, "tabs") and self.tabs.currentWidget() is self.home:
+            return
+        self.web_area.setVisible(True)
+
+    def new_browser_tab(self, url=None):
+        self.show_web_area()
+        browser = BrowserView(self.web_profile, self)
+        browser.urlChanged.connect(lambda u, b=browser: self.browser_url_changed(b, u))
+        browser.titleChanged.connect(lambda t, b=browser: self.browser_title_changed(b, t))
+        browser.setUrl(QUrl(url or "about:blank"))
+        i = self.tabs.addTab(browser, "Новая вкладка")
+        self.install_tab_close_button(i)
+        self.tabs.setCurrentIndex(i)
+        return browser
+
+    def current_browser(self):
+        w = self.tabs.currentWidget()
+        return w if isinstance(w, QWebEngineView) else None
+
+    def install_tab_close_button(self, index):
+        if index < 0 or index >= self.tabs.count():
+            return
+        button = QPushButton("×")
+        button.setObjectName("tabCloseButton")
+        button.setCursor(Qt.CursorShape.PointingHandCursor)
+        button.setToolTip("Закрыть вкладку / Close tab")
+        button.setFixedSize(22, 22)
+        button.clicked.connect(lambda _checked=False, b=button: self.close_tab_by_button(b))
+        self.tabs.tabBar().setTabButton(index, QTabBar.ButtonPosition.RightSide, button)
+
+
+    def open_command_center(self):
+        dialog = CommandPalette(self, self)
+        dialog.exec()
+
+    def open_tab_context_menu(self, pos):
+        index = self.tabs.tabBar().tabAt(pos)
+        if index < 0:
+            return
+        menu = QMenu(self)
+        close_action = menu.addAction("Закрыть вкладку")
+        duplicate_action = menu.addAction("Дублировать вкладку")
+        pin_action = menu.addAction("Закрепить / открепить")
+        menu.addSeparator()
+        close_others = menu.addAction("Закрыть остальные")
+        reopen = menu.addAction("Открыть последнюю закрытую")
+        chosen = menu.exec(self.tabs.tabBar().mapToGlobal(pos))
+        if chosen is close_action:
+            self.close_tab(index)
+        elif chosen is duplicate_action:
+            widget = self.tabs.widget(index)
+            if isinstance(widget, BrowserView):
+                self.new_browser_tab(widget.url().toString())
+        elif chosen is pin_action:
+            self.toggle_tab_pin(index)
+        elif chosen is close_others:
+            for i in range(self.tabs.count() - 1, -1, -1):
+                if i != index and self.tabs.widget(i) is not self.home:
+                    self.close_tab(i)
+        elif chosen is reopen:
+            self.restore_last_closed_tab()
+
+    def toggle_tab_pin(self, index):
+        if index < 0 or index >= self.tabs.count():
+            return
+        bar = self.tabs.tabBar()
+        pinned = bool(self.tabs.widget(index).property("orbit_pinned"))
+        self.tabs.widget(index).setProperty("orbit_pinned", not pinned)
+        title = self.tabs.tabText(index).replace("📌 ", "")
+        self.tabs.setTabText(index, ("📌 " if not pinned else "") + title)
+        self.config.setdefault("pinned_tabs", {})
+        url = self.tabs.widget(index).url().toString() if isinstance(self.tabs.widget(index), BrowserView) else f"orbit://{title.lower()}"
+        if not pinned:
+            self.config["pinned_tabs"][url] = True
+        else:
+            self.config["pinned_tabs"].pop(url, None)
+        save_config(self.config)
+        bar.update()
+
+    def close_tab_by_button(self, button):
+        for i in range(self.tabs.count()):
+            if self.tabs.tabBar().tabButton(i, QTabBar.ButtonPosition.RightSide) is button:
+                self.close_tab(i)
+                return
+
+    def close_current_tab(self):
+        if self.tabs.count() == 0:
+            return
+        self.close_tab(self.tabs.currentIndex())
+
+    def close_tab(self, index):
+        if index < 0 or index >= self.tabs.count():
+            return
+        if self.tabs.widget(index) is self.home:
+            if self.tabs.count() > 1:
+                self.tabs.setCurrentIndex(1)
+            return
+        w = self.tabs.widget(index)
+        try:
+            if isinstance(w, BrowserView):
+                url = w.url().toString()
+                if url and url != "about:blank":
+                    self.config["last_closed_url"] = url
+                    self.last_closed_tabs = [url] + [u for u in self.last_closed_tabs if u != url]
+                    self.last_closed_tabs = self.last_closed_tabs[:10]
+                    self.config["last_closed_tabs"] = self.last_closed_tabs
+                    save_config(self.config)
+        except Exception:
+            pass
+        self.tabs.removeTab(index)
+        if w is not None:
+            w.deleteLater()
+        if self.tabs.count() == 0:
+            home_index = self.tabs.addTab(self.home, "Главная")
+            self.install_tab_close_button(home_index)
+            self.tabs.setCurrentIndex(home_index)
+
+    def bookmark_current_page(self):
+        browser = self.current_browser()
+        if not browser:
+            return
+        from orbit_storage import add_bookmark
+        add_bookmark(browser.title() or browser.url().toString(), browser.url().toString())
+        self.statusBar().showMessage("Закладка сохранена", 2000)
+
+    def restore_last_closed_tab(self):
+        url = self.last_closed_tabs.pop(0) if self.last_closed_tabs else self.config.get("last_closed_url", "")
+        if url:
+            self.config["last_closed_tabs"] = self.last_closed_tabs
+            self.config["last_closed_url"] = self.last_closed_tabs[0] if self.last_closed_tabs else ""
+            save_config(self.config)
+            self.new_browser_tab(url)
+
+    def closeEvent(self, event):
+        try:
+            tabs=[]
+            for i in range(self.tabs.count()):
+                w=self.tabs.widget(i)
+                if isinstance(w, BrowserView) and w.url().toString() not in ("about:blank", ""):
+                    tabs.append(w.url().toString())
+            self.config["session_tabs"] = tabs[-30:]
+            current=self.current_browser()
+            if current and current.url().toString() not in ("about:blank", ""):
+                self.config["last_closed_url"] = current.url().toString()
+            self.config["session_clean_exit"] = True
+            save_config(self.config)
+            self.sync_now()
+        except Exception:
+            pass
+        try:
+            self.core.shutdown()
+        except Exception:
+            pass
+        event.accept()
+
+    def handle_download_request(self, item):
+        try:
+            default_dir = QStandardPaths.writableLocation(QStandardPaths.StandardLocation.DownloadLocation)
+            os.makedirs(default_dir, exist_ok=True)
+            filename = item.downloadFileName() or item.suggestedFileName() or "OrbitDownload"
+            path = os.path.join(default_dir, filename)
+            base, ext = os.path.splitext(path)
+            counter = 1
+            while os.path.exists(path):
+                path = f"{base} ({counter}){ext}"
+                counter += 1
+            item.setDownloadDirectory(default_dir)
+            item.setDownloadFileName(os.path.basename(path))
+            add_download(os.path.basename(path), item.url().toString(), path, "started", 0)
+            def done():
+                add_download(os.path.basename(path), item.url().toString(), path, "completed", 0)
+            item.isFinishedChanged.connect(done)
+            item.accept()
+        except Exception:
+            try:
+                item.accept()
+            except Exception:
+                pass
+
+    def browser_title_changed(self, browser, title):
+        i = self.tabs.indexOf(browser)
+        if i < 0:
+            return
+        title = title.strip() or "Новая вкладка"
+        self.tabs.setTabText(i, title[:22] + ("…" if len(title) > 22 else ""))
+
+    def browser_url_changed(self, browser, url):
+        value = url.toString()
+        if browser is self.current_browser():
+            self.address.setText(value)
+        if value and not value.startswith(("about:", "orbit://")):
+            add_history(browser.title() or value, value)
+            self.config["stats_pages"] = int(self.config.get("stats_pages", 0)) + 1
+            save_config(self.config)
+
+    def sync_address(self, index):
+        browser = self.current_browser()
+        self.address.setText(browser.url().toString() if browser else "")
+        self.update_tab_widths()
+
+    def update_tab_widths(self):
+        if not hasattr(self, "tabs"):
+            return
+        count = max(1, self.tabs.count())
+        available = max(240, self.tabs.tabBar().width() - 16)
+        width = max(72, min(190, int(available / count) - 8))
+        self.tabs.setStyleSheet(
+            f"QTabBar::tab {{ min-width: {width}px; max-width: {width}px; padding: 7px 8px; }} "
+            "QTabBar::close-button { width: 16px; height: 16px; }"
+        )
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        QTimer.singleShot(0, self.update_tab_widths)
+
+
+    def execute_command(self, text):
+        command = str(text or "").strip()
+        if not command:
+            return
+        self.core.remember_command(command)
+        recent = list(self.config.get("command_palette_recent", [])) if isinstance(self.config.get("command_palette_recent", []), list) else []
+        recent = [command] + [x for x in recent if x != command]
+        self.config["command_palette_recent"] = recent[:12]
+        save_config(self.config)
+        lower = command.lower()
+        if lower in {"/new-tab", "/newtab"}:
+            self.new_browser_tab("about:blank"); return
+        if lower == "/new-private":
+            QMessageBox.information(self, "Orbit Private", "Приватный профиль подготовлен в архитектуре Orbit. Для текущего релиза приватная вкладка открыта без сохранения Orbit history.")
+            self.new_browser_tab("about:blank"); return
+        if lower.startswith("/profile "):
+            name = command.split(" ", 1)[1].strip()
+            self.open_profile_page(); return
+        if lower.startswith("/workspace "):
+            name = command.split(" ", 1)[1].strip()
+            self.open_internal_page(NotesPage(self), f"Workspace: {name}", f"workspace-{name}"); return
+        if lower.startswith("/theme "):
+            self.change_theme(command.split(" ", 1)[1].strip().upper()); return
+        if lower == "/settings": self.open_settings(); return
+        if lower == "/history": self.open_history(); return
+        if lower == "/downloads": self.open_downloads(); return
+        if lower == "/clear-cache":
+            self.clear_browser_cache(); return
+        if lower.startswith("/vpn"):
+            QMessageBox.information(self, "Orbit VPN", "VPN provider integration готовится через отдельный provider adapter. Orbit не притворяется встроенным VPN-провайдером."); return
+        self.navigate_text(command)
+
+    def clear_browser_cache(self):
+        try:
+            self.web_profile.clearHttpCache()
+            self.web_profile.clearAllVisitedLinks()
+            self.statusBar().showMessage("Кэш Orbit очищен", 3500)
+        except Exception:
+            pass
+
+    def navigate(self):
+        text = self.address.text().strip()
+        if not text:
+            return
+        self.navigate_text(text)
+
+    def navigate_text(self, text):
+        text = text.strip()
+        if not text:
+            return
+        if text.startswith("/"):
+            self.execute_command(text)
+            return
+        if text.startswith(("http://", "https://")):
+            self.config["stats_pages"] = int(self.config.get("stats_pages", 0)) + 1
+            save_config(self.config)
+            self.open_url(text)
+        elif "." in text and " " not in text:
+            self.config["stats_pages"] = int(self.config.get("stats_pages", 0)) + 1
+            save_config(self.config)
+            self.open_url("https://" + text)
+        else:
+            self.open_orbit_search(text)
+
+    SEARCH_PROVIDERS = {
+        "google": "https://www.google.com/search?q=",
+        "bing": "https://www.bing.com/search?q=",
+        "duckduckgo": "https://duckduckgo.com/?q=",
+        "yandex": "https://yandex.ru/search/?text=",
+    }
+
+    def search_url(self, query):
+        base = self.SEARCH_PROVIDERS.get(self.config.get("search_engine", "google"), self.SEARCH_PROVIDERS["google"])
+        return base + quote(query)
+
+    def show_search_results(self, query):
+        self.open_orbit_search(query)
+
+    def open_orbit_search(self, query=""):
+        if query:
+            self.open_url(self.search_url(query))
+        else:
+            self.show_home_screen()
+
+
+    def open_url(self, url):
+        if not url.startswith("orbit://") and not self.network_allowed():
+            QMessageBox.warning(self, "Orbit Network", "Orbit настроен работать только при наличии VPN. Включите VPN или отключите эту защиту в Настройках.")
+            return
+        if url.startswith("orbit://search"):
+            from urllib.parse import parse_qs, urlparse, unquote
+            parsed = urlparse(url)
+            query = unquote(parse_qs(parsed.query).get("q", [""])[0])
+            if query:
+                self.open_url(self.search_url(query))
+            else:
+                self.show_home_screen()
+            return
+        if url.startswith("orbit://history"):
+            self.open_internal_page(HistoryPage(self), "История", "history")
+            return
+        if url.startswith("orbit://bookmarks"):
+            self.open_internal_page(BookmarksPage(self), "Закладки", "bookmarks")
+            return
+        if url.startswith("orbit://downloads"):
+            self.open_internal_page(DownloadsPage(self), "Загрузки", "downloads")
+            return
+        if url.startswith("orbit://notes"):
+            self.open_internal_page(NotesPage(self), "Заметки", "notes")
+            return
+        if url.startswith("orbit://settings"):
+            self.open_internal_page(SettingsPage(self), "Настройки", "settings")
+            return
+        if url.startswith("orbit://dashboard"):
+            self.show_home_screen()
+            return
+        if url.startswith("orbit://diagnostics"):
+            self.open_diagnostics()
+            return
+        if url.startswith("orbit://games"):
+            self.open_mini_games()
+            return
+        if url.startswith("orbit://profile"):
+            self.open_profile_page()
+            return
+        if url.startswith("orbit://gemini"):
+            self.open_gemini()
+            return
+        if url.startswith("orbit://support"):
+            self.open_support()
+            return
+        self.show_web_area()
+        browser = self.current_browser()
+        if not browser:
+            browser = self.new_browser_tab(url)
+        else:
+            browser.setUrl(QUrl(url))
+
+    def vpn_available(self):
+        if not self.config.get("require_vpn", False):
+            return True
+        if sys.platform != "win32":
+            return True
+        try:
+            text = subprocess.check_output(["ipconfig", "/all"], text=True, encoding="utf-8", errors="ignore")
+            keywords = ("wireguard", "wintun", "openvpn", "nordvpn", "mullvad", "proton", "tailscale", "warp", "tap-windows", "cisco anyconnect")
+            return any(k in text.lower() for k in keywords)
+        except Exception:
+            return True
+
+    def network_allowed(self):
+        return self.vpn_available()
+
+    def go_back(self):
+        b = self.current_browser()
+        if b:
+            b.back()
+
+    def go_forward(self):
+        b = self.current_browser()
+        if b:
+            b.forward()
+
+    def reload_page(self):
+        b = self.current_browser()
+        if b:
+            b.reload()
+
+    def open_internal_page(self, page, title, route=None):
+        self.show_web_area()
+        route = route or title.lower()
+        # Один экземпляр каждой внутренней страницы: повторное нажатие просто переключает вкладку.
+        for i in range(self.tabs.count()):
+            existing = self.tabs.widget(i)
+            if existing is not None and existing.objectName() == f"orbit-page:{route}":
+                self.tabs.setCurrentIndex(i)
+                self.address.setText(f"orbit://{route}")
+                try:
+                    existing.refresh()
+                except Exception:
+                    pass
+                return existing
+        page.setObjectName(f"orbit-page:{route}")
+        i = self.tabs.addTab(page, title)
+        self.install_tab_close_button(i)
+        self.tabs.setCurrentIndex(i)
+        self.address.setText(f"orbit://{route}")
+        return page
+
+    def open_history(self):
+        self.open_internal_page(HistoryPage(self), "История", "history")
+
+    def open_bookmarks(self):
+        self.open_internal_page(BookmarksPage(self), "Закладки", "bookmarks")
+
+    def open_notes(self):
+        self.open_internal_page(NotesPage(self), "Заметки", "notes")
+
+    def open_downloads(self):
+        self.open_internal_page(DownloadsPage(self), "Загрузки", "downloads")
+
+    def open_settings(self):
+        self.open_internal_page(SettingsPage(self), "Настройки", "settings")
+
+    def set_session(self, token, user):
+        self.token=token; self.user=user if isinstance(user,dict) else None
+        self.is_guest=not bool(self.token and self.user)
+        if self.token:
+            try:
+                value = secure_protect(self.token) if os.name == "nt" else self.token
+                with open(SESSION_FILE, "w", encoding="utf-8") as f:
+                    json.dump({"token": value}, f)
+            except Exception:
+                pass
+            save_local_profile(self.user or {})
+        self.update_identity_ui(); self.rebuild_navigation(); self.sync_now()
+
+    def rebuild_navigation(self):
+        role=(self.user or {}).get("role","user").lower() if not self.is_guest else "guest"
+        if hasattr(self,"nav_buttons"):
+            admin_button=self.nav_buttons.get("admin")
+            if role in {"helper","admin"}:
+                if not admin_button:
+                    button=QPushButton("◆   Админ-панель"); button.setObjectName("sidebarNav"); button.clicked.connect(self.open_admin_panel)
+                    self.sidebar.layout().insertWidget(max(0,self.sidebar.layout().count()-1),button); self.nav_buttons["admin"]=(button,"◆")
+                else: admin_button[0].setVisible(True)
+            elif admin_button:
+                admin_button[0].setVisible(False)
+        self.apply_language()
 
     def open_profile_page(self):
         if not self.token:
@@ -613,7 +1170,6 @@ class OrbitBrowser(QMainWindow):
             ("Профиль", self.open_profile_page),
             ("Диагностика", self.open_diagnostics),
             ("Настройки", self.open_settings),
-            ("Мини-игры", self.open_mini_games),
         ]
         if (self.user or {}).get("role", "user").lower() in {"helper", "admin"} and not self.is_guest:
             entries.insert(-1, ("Админ-панель", self.open_admin_panel))
@@ -771,10 +1327,8 @@ def main():
     os.makedirs(os.path.dirname(SESSION_FILE), exist_ok=True)
     config=load_config()
     flags=os.environ.get("QTWEBENGINE_CHROMIUM_FLAGS", "")
-    mode=str(config.get("performance_mode", "performance"))
-    renderer_limit="4" if mode == "performance" else "2"
-    optimizations=f" --disable-background-networking --disable-component-update --disable-domain-reliability --disable-features=Translate,MediaRouter,OptimizationHints --renderer-process-limit={renderer_limit}"
-    os.environ["QTWEBENGINE_CHROMIUM_FLAGS"]=(flags+optimizations).strip()
+    optimizations=PerformancePolicy.webengine_flags() + " --renderer-process-limit=4"
+    os.environ["QTWEBENGINE_CHROMIUM_FLAGS"]=(flags+" "+optimizations).strip()
     proxy_url=str(config.get("proxy_url", "")).strip()
     if proxy_url:
         os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] += " --proxy-server="+proxy_url

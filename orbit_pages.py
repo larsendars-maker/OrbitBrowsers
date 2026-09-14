@@ -2024,21 +2024,11 @@ class SettingsPage(QWidget):
         anim.clicked.connect(lambda: self.toggle_bool("animations", anim))
         self.add_card("Плавные анимации", "Включает мягкие появления и переходы интерфейса. Отключение может сделать интерфейс быстрее на слабом ПК.", anim)
 
-        perf = QPushButton("Максимальная скорость" if self.browser.config.get("performance_mode", "performance") == "performance" else "Сбалансированный")
-        perf.clicked.connect(lambda: self.toggle_performance(perf))
-        self.add_card("Режим производительности", "Максимальная скорость использует больше ресурсов и держит больше renderer-процессов для быстрых переходов между вкладками.", perf)
+        fast = QLabel("⚡ Активен автоматически")
+        fast.setStyleSheet("color:#73e8ff;font-weight:700;")
+        self.add_card("Быстрый режим", "Orbit всегда использует быстрый режим: без искусственных задержек и лишнего переключателя производительности.", fast)
 
         self.layout.addStretch()
-
-    def toggle_performance(self, button):
-        current = self.browser.config.get("performance_mode", "performance")
-        new_mode = "balanced" if current == "performance" else "performance"
-        self.browser.config["performance_mode"] = new_mode
-        from orbit_storage import save_config
-        save_config(self.browser.config)
-        self.browser.update_mode_button()
-        self.browser.apply_chromium_performance()
-        button.setText("Максимальная скорость" if new_mode == "performance" else "Сбалансированный")
 
     def save_engine(self, index):
         self.browser.config["search_engine"] = self.engine_control.itemData(index)

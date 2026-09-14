@@ -1,0 +1,29 @@
+name: Orbit Security Scan
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "**/*.py"
+      - "**/*.kt"
+      - "**/*.kts"
+      - "**/*.yml"
+      - "**/*.yaml"
+      - ".github/workflows/security.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Security scan
+        run: python tools/scan_secrets.py
+      - name: Python smoke test
+        run: python tools/smoke_test.py

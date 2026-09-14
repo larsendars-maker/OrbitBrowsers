@@ -523,7 +523,7 @@ def stylesheet(theme_name):
     QLabel#settingDescription {{
         color: {theme['muted']};
         font-size: 12px;
-        line-height: 1.3;
+        line-height: 1.11;
     }}
 
     QListWidget {{

@@ -7,8 +7,8 @@ android {
         applicationId = "com.orbit.browser"
         minSdk = 26
         targetSdk = 35
-        versionCode = 180
-        versionName = "1.8"
+        versionCode = 112
+        versionName = "1.12"
     }
 
     compileOptions {

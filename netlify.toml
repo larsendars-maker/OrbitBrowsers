@@ -15,3 +15,15 @@
   to = "https://github.com/larsendars-maker/OrbitBrowsers/releases/download/Android/OrbitBrowser.apk"
   status = 302
   force = true
+
+[[redirects]]
+  from = "/api/*"
+  to = "https://orbit-api-9uqa.onrender.com/api/:splat"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/games/"
+  to = "/games.html"
+  status = 200
+  force = true

@@ -21,7 +21,7 @@ try:
 except Exception:
     genai = None
 
-APP_VERSION = "1.9"
+APP_VERSION = "1.11"
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
 DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 FOUNDER_USERNAME = os.getenv("ORBIT_FOUNDER_USERNAME", "Larsenda").strip() or "Larsenda"
@@ -254,31 +254,34 @@ def is_helper_or_admin(row):
 
 
 
-def analytics_key(request: Request) -> str:
-    visitor_id = request.cookies.get("orbit_visitor_id", "").strip()
-    if visitor_id:
-        raw = f"cookie:{visitor_id}"
-    else:
-        ip = request.client.host if request.client else "unknown"
-        ua = request.headers.get("user-agent", "unknown")[:300]
-        raw = f"fallback:{ip}|{ua}"
-    return hashlib.sha256((ANALYTICS_SECRET + "|" + raw).encode("utf-8", "ignore")).hexdigest()
+def visitor_id(request: Request) -> tuple[str, bool]:
+    value = request.cookies.get("orbit_visitor_id", "").strip()
+    if value:
+        return value, False
+    return secrets.token_urlsafe(24), True
 
 
-def ensure_visitor_cookie(response, request: Request):
-    if not request.cookies.get("orbit_visitor_id"):
+def analytics_key(visitor: str) -> str:
+    return hashlib.sha256((ANALYTICS_SECRET + "|cookie:" + visitor).encode("utf-8", "ignore")).hexdigest()
+
+
+def ensure_visitor_cookie(response, request: Request, visitor: str | None = None):
+    value = visitor or request.cookies.get("orbit_visitor_id", "").strip()
+    if not request.cookies.get("orbit_visitor_id") and value:
         response.set_cookie(
-            "orbit_visitor_id", secrets.token_urlsafe(24), max_age=60*60*24*365*5,
+            "orbit_visitor_id", value, max_age=60*60*24*365*5,
             httponly=True, samesite="lax", secure=request.url.scheme == "https"
         )
     return response
 
 
-def record_event(request: Request, event_type: str):
-    key = analytics_key(request)
+def record_event(request: Request, event_type: str, visitor: str | None = None) -> str:
+    value = visitor or visitor_id(request)[0]
+    key = analytics_key(value)
     with db() as conn, conn.cursor() as cur:
         cur.execute("INSERT INTO site_events(event_type, visitor_key) VALUES(%s,%s)", (event_type, key))
         conn.commit()
+    return value
 
 
 def site_stats():
@@ -402,9 +405,20 @@ def startup():
 
 @app.get("/")
 def root(request: Request):
-    record_event(request, "view")
+    visitor, _ = visitor_id(request)
+    record_event(request, "view", visitor)
     response = FileResponse(SITE_DIR / "index.html")
-    return ensure_visitor_cookie(response, request)
+    return ensure_visitor_cookie(response, request, visitor)
+
+
+@app.get("/api/site/visit")
+def site_visit(request: Request):
+    visitor, _ = visitor_id(request)
+    record_event(request, "view", visitor)
+    response = {"ok": True}
+    from fastapi.responses import JSONResponse
+    result = JSONResponse(response)
+    return ensure_visitor_cookie(result, request, visitor)
 
 
 @app.get("/admin")
@@ -856,9 +870,10 @@ def download_file(file_key: str, request: Request):
         row = cur.fetchone()
     if not row or not row[2] or not row[1]:
         raise HTTPException(404, "Download is not configured yet")
-    record_event(request, "download")
+    visitor, _ = visitor_id(request)
+    record_event(request, "download", visitor)
     response = RedirectResponse(row[1] or RELEASE_URL, status_code=302)
-    return ensure_visitor_cookie(response, request)
+    return ensure_visitor_cookie(response, request, visitor)
 
 
 @app.get("/api/admin/overview")
