@@ -21,7 +21,7 @@ try:
 except Exception:
     genai = None
 
-APP_VERSION = "2.0"
+APP_VERSION = "2.3"
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
 DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 FOUNDER_USERNAME = os.getenv("ORBIT_FOUNDER_USERNAME", "Larsenda").strip() or "Larsenda"

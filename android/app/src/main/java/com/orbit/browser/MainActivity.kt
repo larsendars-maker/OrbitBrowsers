@@ -47,7 +47,7 @@ import java.util.concurrent.Executors
 
 class MainActivity : ComponentActivity() {
     private val api = "https://orbit-api-9uqa.onrender.com"
-    private val appVersion = "2.2"
+    private val appVersion = "2.3"
     private val githubVersionUrl = "https://raw.githubusercontent.com/larsendars-maker/OrbitBrowsers/main/android/VERSION.txt"
     private val githubApkUrl = "https://github.com/larsendars-maker/OrbitBrowsers/releases/download/Android/OrbitBrowser.apk"
     private val orbitBg = Color.rgb(5, 7, 18)

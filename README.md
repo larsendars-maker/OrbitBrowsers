@@ -1,4 +1,4 @@
-# Orbit Browser 2.0
+# Orbit Browser 2.3
 
 Быстрый, единый и настраиваемый браузер Orbit.
 
@@ -13,16 +13,16 @@
 
 Windows и Android собираются через GitHub Actions.
 
-## Orbit 2.0
+## Orbit 2.3
 
-Orbit 2.0 объединяет Windows, Android, сайт и Orbit Core в единую релизную версию.
+Orbit 2.3 объединяет Windows, Android, сайт и Orbit Core в единую релизную версию.
 
 Default search engine: **Google**.
 
 Windows and Android builds are produced by GitHub Actions.
 
 
-## Orbit 2.0
+## Orbit 2.3
 
 ### Быстродействие
 Orbit запускает интерфейс сразу и выполняет сеть, синхронизацию и update-check в фоне. Пользовательский переключатель медленного режима удалён.
@@ -36,7 +36,7 @@ Orbit запускает интерфейс сразу и выполняет с�
 ### Release
 Windows Actions создаёт только один `OrbitBrowser.exe`. Android Actions создаёт только один `OrbitBrowser.apk`. Отдельный Security workflow проверяет секреты и Python smoke tests.
 
-## Orbit 2.0
+## Orbit 2.3
 
 Фокус релиза — не новые декоративные экраны, а **Core / Performance / Storage**:
 

@@ -95,7 +95,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           if ! gh release view Android >/dev/null 2>&1; then
-            gh release create Android --title "Orbit Browser Android" --notes "Orbit Browser 2.2 для Android."
+            gh release create Android --title "Orbit Browser Android" --notes "Orbit Browser 2.3 для Android."
           fi
           gh release upload Android output/OrbitBrowser.apk output/SHA256.txt --clobber
 
